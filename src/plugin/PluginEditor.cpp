@@ -76,7 +76,7 @@ SteamSynthEditor::SteamSynthEditor(SteamSynthProcessor& p):AudioProcessorEditor(
  makeButton(polySelect,"Choose polyphony",[this]{choosePolyphony();});
  sync.setButtonText({});sync.setTooltip("Tape echo sync to host tempo");addAndMakeVisible(sync);
  syncAttachment=std::make_unique<AudioProcessorValueTreeState::ButtonAttachment>(synth.state,"sync",sync);
- addAndMakeVisible(piano);piano.setAvailableRange(48,95);piano.setKeyWidth(33.f);
+ addAndMakeVisible(piano);
  setSize(1600,900);setResizable(true,true);setResizeLimits(960,540,1920,1080);
  if(getConstrainer()!=nullptr)getConstrainer()->setFixedAspectRatio(1600.0/900.0);
  setTab(0);startTimerHz(30);
