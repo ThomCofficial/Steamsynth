@@ -1,84 +1,200 @@
 #include "PluginEditor.h"
 #include <BinaryData.h>
+#include <algorithm>
 #include <array>
-#include <functional>
 #include <cmath>
-#include <numbers>
+#include <functional>
 
 namespace {
 using namespace juce;
-constexpr float SX=1600.f/1672.f, SY=900.f/941.f;
-struct Sprite { const char* id; int ax,ay,side; int cx,cy; float normal; };
-// Coordinates are registered to the *approved* art, not approximate illustrated stand-ins.
-constexpr Sprite artKnobs[]={
- {"seed",0,0,161,362,321,.70f}, {"grow",178,0,161,629,321,.70f},
- {"mutate",356,0,161,887,313,.70f}, {"dirt",534,0,161,1152,321,.70f},
- {"bloom",712,0,161,1425,321,.70f},
- {"attack",0,180,55,291,694,.62f}, {"release",89,180,55,400,694,.62f},
- {"time",178,180,55,598,691,.62f}, {"feedback",267,180,55,707,691,.62f},
- {"echoMix",356,180,55,805,691,.62f},
- {"glide",445,180,47,203,863,.62f},
- {"motionRate",534,180,45,1351,856,.62f},
- {"motionDepth",623,180,45,1435,855,.62f},
- {"motionAmount",712,180,45,1519,855,.62f},
- {"tone",534,180,45,1351,856,.62f}, {"drift",623,180,45,1435,855,.62f},
- {"reverbDamp",712,180,45,1519,855,.62f},
- {"spore",534,180,45,1351,856,.62f}, {"resonance",623,180,45,1435,855,.62f},
- {"width",712,180,45,1519,855,.62f},
+constexpr float W=1600.f,H=900.f;
+constexpr Colour amber{0xfff3a848}, ink{0xff4b2d18};
+struct KnobSpec {const char* id;float cx,cy,diameter;};
+constexpr KnobSpec knobSpecs[]={
+ {"seed",345,306,184},{"grow",600,306,184},{"mutate",850,306,184},
+ {"dirt",1100,306,184},{"bloom",1360,306,184},
+ {"attack",279,666,60},{"release",383,666,60},
+ {"time",580,666,60},{"feedback",683,666,60},{"echoMix",779,666,60},
+ {"glide",196,838,60},
+ {"motionRate",1308,832,60},{"motionDepth",1393,832,60},{"motionAmount",1476,832,60},
+ {"tone",1308,832,60},{"drift",1393,832,60},{"reverbDamp",1476,832,60},
+ {"spore",1308,832,60},{"resonance",1393,832,60},{"width",1476,832,60}
 };
-const Sprite* findSprite(const String& id) {
- for(const auto& s:artKnobs)if(id==s.id)return &s;
- return nullptr;
+static int indexOf(const String& id){
+ for(int i=0;i<int(std::size(knobSpecs));++i)if(id==knobSpecs[i].id)return i;
+ return -1;
 }
-const Colour amber=Colour::fromRGB(242,157,55),ink=Colour::fromRGB(62,40,20),parchment=Colour::fromRGB(231,198,152);
-static void letterpress(Graphics& g,const String& s,Rectangle<float> r,float size=18.f){
- g.setColour(Colour::fromRGB(245,216,169));g.setFont(Font(FontOptions("Georgia",size,Font::italic)));g.drawFittedText(s,r.toNearestInt(),Justification::centred,1);
+static void italic(Graphics& g,const String& s,Rectangle<float> r,float size){
+ g.setColour(Colour::fromRGB(243,213,164));
+ g.setFont(Font(FontOptions("Georgia",size,Font::italic)));
+ g.drawFittedText(s,r.toNearestInt(),Justification::centred,1);
 }
-}
-BotanicalLookAndFeel::BotanicalLookAndFeel(){
- atlas=juce::ImageCache::getFromMemory(BinaryData::knob_atlas_png,BinaryData::knob_atlas_pngSize);
-}
-void BotanicalLookAndFeel::drawRotarySlider(Graphics&g,int x,int y,int w,int h,float proportion,float,float,Slider& slider){
- // The engraved faceplate and botanical imagery never rotate.
- // Only the thin brass indicator needle moves above the stationary art.
- const auto* sprite=findSprite(slider.getName());
- if(!sprite)return;
- const float cx=x+w*.5f,cy=y+h*.5f;
- const float angle=-2.30f+proportion*4.60f;
- const float radius=std::min(w,h)*.39f;
- const float dx=std::sin(angle),dy=-std::cos(angle);
- g.setColour(Colour::fromRGB(28,18,12).withAlpha(.45f));
- g.drawLine(cx+1.2f,cy+1.2f,cx+dx*radius+1.2f,cy+dy*radius+1.2f,std::max(2.2f,w*.027f));
- g.setColour(Colour::fromRGB(42,29,19));
- g.drawLine(cx,cy,cx+dx*radius,cy+dy*radius,std::max(1.7f,w*.022f));
- g.setColour(Colour::fromRGB(244,204,127));
- g.drawLine(cx-dx*radius*.07f,cy-dy*radius*.07f,cx+dx*radius*.73f,cy+dy*radius*.73f,std::max(1.f,w*.008f));
- g.setColour(Colour::fromRGB(55,32,15));g.fillEllipse(cx-w*.032f,cy-w*.032f,w*.064f,w*.064f);
 }
 
-SteamSynthEditor::SteamSynthEditor(SteamSynthProcessor& p):AudioProcessorEditor(p),synth(p),piano(p.keyboard){
+BotanicalLookAndFeel::BotanicalLookAndFeel(){
+ hardware=ImageCache::getFromMemory(BinaryData::hardware_png,BinaryData::hardware_pngSize);
+ if(!hardware.isValid())return;
+ auto crop=[this](int x,int y,int w,int h){return hardware.getClippedImage({x,y,w,h});};
+ for(int i=0;i<5;++i){rings[i]=crop(i*190,0,184,184);medallions[i]=crop(i*190,190,184,184);}
+ for(int i=0;i<9;++i)smallKnobs[i]=crop(i*65,389,60,60);
+ for(int i=0;i<4;++i){tabNormal[i]=crop(i*154,492,150,68);tabLit[i]=crop(i*154,565,150,68);}
+ for(int i=0;i<3;++i)presetHardware[i]=crop(i*70,645,65,65);
+ flower=crop(700,389,92,92);flowerRing=crop(800,389,92,92);
+ whiteUp=crop(0,738,40,132);whiteDown=crop(48,738,40,132);
+ blackUp=crop(102,738,20,72);blackDown=crop(130,738,20,72);
+ led=crop(170,738,32,32);flameSprite=crop(230,736,70,100);
+ undoSprite=crop(400,645,65,65);
+}
+void BotanicalLookAndFeel::paintSprite(Graphics&g,const Image&im,Rectangle<float>r){
+ if(im.isValid())g.drawImage(im,r,RectanglePlacement::stretchToFit,false);
+}
+void BotanicalLookAndFeel::drawRotarySlider(Graphics&g,int x,int y,int w,int h,float value,float,float,Slider& slider){
+ const int i=indexOf(slider.getName());if(i<0)return;
+ const float cx=x+w*.5f,cy=y+h*.5f;
+ const Rectangle<float> dest{float(x),float(y),float(w),float(h)};
+ const float angle=-2.34f+juce::jlimit(0.f,1.f,value)*4.68f;
+ if(i<5){
+  // Botanical medallion is a fixed, independently fabricated inlay.
+  paintSprite(g,medallions[unsigned(i)],dest);
+  // Only the metal rim, including its integral pointer, rotates.
+  Graphics::ScopedSaveState guard(g);
+  g.addTransform(AffineTransform::rotation(angle,cx,cy));
+  paintSprite(g,rings[unsigned(i)],dest);
+  if(i==2){
+   g.setColour(amber.withAlpha(.09f+.08f*value));
+   g.drawEllipse(dest.reduced(8.f),2.f);
+  }
+ }else{
+  const int j=i>=11?6+(i-11)%3:i-5;
+  Graphics::ScopedSaveState guard(g);
+  g.addTransform(AffineTransform::rotation(angle,cx,cy));
+  paintSprite(g,smallKnobs[unsigned(j)],dest);
+ }
+}
+void BotanicalLookAndFeel::drawButtonBackground(Graphics&g,Button& b,const Colour&,bool hover,bool down){
+ const auto id=b.getName();
+ const Rectangle<float> r=b.getLocalBounds().toFloat();
+ if(id.startsWith("tab_")){
+  const int n=id=="tab_synth"?0:id=="tab_fx"?1:id=="tab_motion"?2:3;
+  paintSprite(g,(b.getToggleState()||hover)?tabLit[unsigned(n)]:tabNormal[unsigned(n)],r);
+  if(down){g.setColour(Colour::fromRGB(93,44,15).withAlpha(.16f));g.fillRoundedRectangle(r.reduced(7.f),12.f);}
+  return;
+ }
+ if(id=="preset_prev"||id=="preset_next"||id=="preset_save"){
+  const int n=id=="preset_prev"?0:id=="preset_next"?1:2;
+  paintSprite(g,presetHardware[unsigned(n)],r);
+  if(hover){g.setColour(amber.withAlpha(down?.23f:.13f));g.fillEllipse(r.reduced(13.f));}
+  return;
+ }
+ if(id=="pollinate_main"){
+  const float pulse=.5f+.5f*std::sin(pollinationPhase);
+  g.setColour(amber.withAlpha(.08f+.20f*pulse));g.fillEllipse(r.expanded(2.f));
+  paintSprite(g,flower,r);
+  {
+   Graphics::ScopedSaveState guard(g);
+   g.addTransform(AffineTransform::rotation(.1f+pollinationPhase*.20f,r.getCentreX(),r.getCentreY()));
+   paintSprite(g,flowerRing,r);
+  }
+  if(hover){g.setColour(amber.withAlpha(.24f));g.drawEllipse(r.reduced(3.f),2.f);}
+  return;
+ }
+ if(id=="undo"){
+  paintSprite(g,undoSprite,r);
+  if(hover){g.setColour(amber.withAlpha(.18f));g.fillEllipse(r.reduced(12.f));}
+ }
+ // Other hit regions deliberately do not paint rectangular JUCE buttons.
+}
+void BotanicalLookAndFeel::drawToggleButton(Graphics&g,ToggleButton& b,bool hover,bool down){
+ const auto r=b.getLocalBounds().toFloat();
+ const auto ledRect=r.withSizeKeepingCentre(32.f,32.f);
+ g.setColour(Colour::fromRGB(66,41,20));g.fillEllipse(ledRect.reduced(7.f));
+ g.setColour(Colour::fromRGB(178,121,53));g.drawEllipse(ledRect.reduced(7.f),1.2f);
+ if(b.getToggleState()){
+  paintSprite(g,led,ledRect);
+  if(hover||down){g.setColour(amber.withAlpha(.20f));g.fillEllipse(ledRect.expanded(3.f));}
+ }else if(hover){g.setColour(amber.withAlpha(.20f));g.fillEllipse(ledRect.reduced(10.f));}
+}
+
+SteamSynthEditor::BotanicalKeyboard::BotanicalKeyboard(MidiKeyboardState& st,BotanicalLookAndFeel& a):state(st),art(a){
+ setInterceptsMouseClicks(true,false);setWantsKeyboardFocus(true);
+}
+SteamSynthEditor::BotanicalKeyboard::~BotanicalKeyboard(){release();}
+int SteamSynthEditor::BotanicalKeyboard::whiteNote(int i) noexcept{
+ constexpr int offsets[]={0,2,4,5,7,9,11};
+ return 48+(i/7)*12+offsets[i%7];
+}
+int SteamSynthEditor::BotanicalKeyboard::noteAt(Point<float> pos) const noexcept{
+ if(pos.x<0.f||pos.x>=float(getWidth())||pos.y<0.f||pos.y>=float(getHeight()))return -1;
+ const float whiteWidth=float(getWidth())/24.f;
+ const float blackHeight=float(getHeight())*72.f/132.f;
+ if(pos.y<blackHeight){
+  for(int i=0;i<23;++i){
+   const int lo=whiteNote(i),hi=whiteNote(i+1);
+   if(hi-lo!=2)continue;
+   const float bx=float(i+1)*whiteWidth-whiteWidth*.25f;
+   if(pos.x>=bx&&pos.x<bx+whiteWidth*.5f)return lo+1;
+  }
+ }
+ const int idx=juce::jlimit(0,23,int(pos.x/whiteWidth));
+ return whiteNote(idx);
+}
+void SteamSynthEditor::BotanicalKeyboard::hold(int note){
+ if(note==held)return;
+ release();
+ if(note>=0){held=note;state.noteOn(1,note,.85f);}
+ repaint();
+}
+void SteamSynthEditor::BotanicalKeyboard::release(){
+ if(held>=0){state.noteOff(1,held,0.f);held=-1;repaint();}
+}
+void SteamSynthEditor::BotanicalKeyboard::mouseDown(const MouseEvent& e){grabKeyboardFocus();hold(noteAt(e.position));}
+void SteamSynthEditor::BotanicalKeyboard::mouseDrag(const MouseEvent& e){hold(noteAt(e.position));}
+void SteamSynthEditor::BotanicalKeyboard::mouseUp(const MouseEvent&){release();}
+void SteamSynthEditor::BotanicalKeyboard::mouseExit(const MouseEvent&){release();}
+void SteamSynthEditor::BotanicalKeyboard::focusLost(FocusChangeType){release();}
+void SteamSynthEditor::BotanicalKeyboard::paint(Graphics&g){
+ const float kw=float(getWidth())/24.f;
+ const float sy=float(getHeight())/132.f;
+ // Each white key is an independently rendered and highlighted component.
+ for(int i=0;i<24;++i){
+  const bool down=state.isNoteOnForChannels(0xffff,whiteNote(i));
+  const auto sprite=art.whiteKey(down);
+  if(sprite.isValid())g.drawImage(sprite,{float(i)*kw,down?2.f*sy:0.f,kw,float(getHeight())-2.f*sy},RectanglePlacement::stretchToFit,false);
+ }
+ // Ebony keys are rendered after ivory keys and win mouse hit testing.
+ for(int i=0;i<23;++i){
+  const int lo=whiteNote(i),hi=whiteNote(i+1);if(hi-lo!=2)continue;
+  const int note=lo+1;
+  const bool down=state.isNoteOnForChannels(0xffff,note);
+  const auto sprite=art.blackKey(down);
+  const float bx=float(i+1)*kw-kw*.25f;
+  if(sprite.isValid())g.drawImage(sprite,{bx,down?2.f*sy:0.f,kw*.5f,72.f*sy},RectanglePlacement::stretchToFit,false);
+ }
+}
+
+SteamSynthEditor::SteamSynthEditor(SteamSynthProcessor& p):AudioProcessorEditor(p),synth(p),piano(p.keyboard,botanical){
  setLookAndFeel(&botanical);
- faceplate=ImageCache::getFromMemory(BinaryData::faceplate_jpg,BinaryData::faceplate_jpgSize);
- for(const auto& spec:artKnobs)addKnob(spec.id);
- auto makeButton=[this](TextButton& b,const String& tooltip,std::function<void()> callback){
-  b.setButtonText({});b.setTooltip(tooltip);b.onClick=std::move(callback);addAndMakeVisible(b);
+ faceplate=ImageCache::getFromMemory(BinaryData::plate_jpg,BinaryData::plate_jpgSize);
+ for(const auto& spec:knobSpecs)addKnob(spec.id);
+ auto button=[this](TextButton&b,const char* name,const String&tip,std::function<void()> fn){
+  b.setName(name);b.setButtonText({});b.setTooltip(tip);b.onClick=std::move(fn);addAndMakeVisible(b);
  };
- makeButton(synthTab,"Synth",[this]{setTab(0);});
- makeButton(fxTab,"Effects",[this]{setTab(1);});
- makeButton(motionTab,"Motion",[this]{setTab(2);});
- makeButton(pollinateSide,"Pollinate: musical patch variation",[this]{synth.pollinate();repaint();});
- makeButton(pollinateButton,"Pollinate: musical patch variation",[this]{synth.pollinate();repaint();});
- makeButton(undoButton,"Undo pollination",[this]{synth.undoPollination();repaint();});
- makeButton(saveButton,"Save preset to a file",[this]{showSaveDialog();});
- makeButton(programPrev,"Previous preset",[this]{synth.setCurrentProgram((synth.getCurrentProgram()+synth.getNumPrograms()-1)%synth.getNumPrograms());repaint();});
- makeButton(programNext,"Next preset",[this]{synth.setCurrentProgram((synth.getCurrentProgram()+1)%synth.getNumPrograms());repaint();});
- makeButton(programSelect,"Choose a SteamSynth preset",[this]{choosePreset();});
- makeButton(polySelect,"Choose polyphony",[this]{choosePolyphony();});
- sync.setButtonText({});sync.setTooltip("Tape echo sync to host tempo");addAndMakeVisible(sync);
+ button(synthTab,"tab_synth","Synth",[this]{setTab(0);});
+ button(fxTab,"tab_fx","Tape and Bloom effects",[this]{setTab(1);});
+ button(motionTab,"tab_motion","Living modulation",[this]{setTab(2);});
+ button(pollinateSide,"tab_pollinate","Pollination and variation controls",[this]{setTab(3);});
+ button(pollinateButton,"pollinate_main","Pollinate: create a musical variation",[this]{synth.pollinate();pollinationPhase=1.f;repaint();});
+ button(undoButton,"undo","Undo pollination",[this]{synth.undoPollination();repaint();});
+ button(saveButton,"preset_save","Save this garden",[this]{showSaveDialog();});
+ button(programPrev,"preset_prev","Previous preset",[this]{synth.setCurrentProgram((synth.getCurrentProgram()+synth.getNumPrograms()-1)%synth.getNumPrograms());repaint();});
+ button(programNext,"preset_next","Next preset",[this]{synth.setCurrentProgram((synth.getCurrentProgram()+1)%synth.getNumPrograms());repaint();});
+ button(programSelect,"preset_display","Choose or load a preset",[this]{choosePreset();});
+ button(polySelect,"poly_display","Choose number of voices",[this]{choosePolyphony();});
+ sync.setName("tape_sync");sync.setButtonText({});sync.setTooltip("Sync tape echo to the host tempo");addAndMakeVisible(sync);
  syncAttachment=std::make_unique<AudioProcessorValueTreeState::ButtonAttachment>(synth.state,"sync",sync);
  addAndMakeVisible(piano);
  setSize(1600,900);setResizable(true,true);setResizeLimits(960,540,1920,1080);
- if(getConstrainer()!=nullptr)getConstrainer()->setFixedAspectRatio(1600.0/900.0);
+ if(getConstrainer())getConstrainer()->setFixedAspectRatio(16.0/9.0);
  setTab(0);startTimerHz(30);
 }
 SteamSynthEditor::~SteamSynthEditor(){stopTimer();setLookAndFeel(nullptr);}
@@ -86,127 +202,150 @@ void SteamSynthEditor::addKnob(const char* id){
  auto slider=std::make_unique<Slider>();slider->setName(id);
  slider->setSliderStyle(Slider::RotaryHorizontalVerticalDrag);
  slider->setTextBoxStyle(Slider::NoTextBox,false,0,0);
- slider->setRotaryParameters(-2.4f,2.4f,true);
- slider->setPopupDisplayEnabled(true,true,this);
+ slider->setRotaryParameters(-2.34f,2.34f,true);
+ slider->setPopupDisplayEnabled(false,false,nullptr);
  slider->setScrollWheelEnabled(true);
- slider->setDoubleClickReturnValue(true,synth.state.getParameter(id)->convertFrom0to1(synth.state.getParameter(id)->getDefaultValue()));
- slider->setTooltip(synth.state.getParameter(id)->getName(120));
+ if(auto* param=synth.state.getParameter(id)){
+  slider->setDoubleClickReturnValue(true,param->convertFrom0to1(param->getDefaultValue()));
+  slider->setTooltip(param->getName(100));
+ }
+ slider->onDragStart=[this,id]{lastEdited=id;lastEditFrames=45;};
+ slider->onValueChange=[this,id]{lastEdited=id;lastEditFrames=45;};
  addAndMakeVisible(*slider);
  attachments.push_back(std::make_unique<AudioProcessorValueTreeState::SliderAttachment>(synth.state,id,*slider));
  knobs.emplace(id,std::move(slider));
 }
 void SteamSynthEditor::setTab(int which){
- tab=which;
+ tab=juce::jlimit(0,3,which);
  for(auto id:{"motionRate","motionDepth","motionAmount","tone","drift","reverbDamp","spore","resonance","width"})knobs.at(id)->setVisible(false);
- const char* const byMode[3][3]={{"motionRate","motionDepth","motionAmount"},{"tone","drift","reverbDamp"},{"spore","resonance","width"}};
- const int mode=which==1?1:which==3?2:0;
- for(auto id:byMode[mode])knobs.at(id)->setVisible(true);
+ const char* const pages[3][3]={{"motionRate","motionDepth","motionAmount"},{"tone","drift","reverbDamp"},{"spore","resonance","width"}};
+ const int page=tab==1?1:tab==3?2:0;
+ for(const auto id:pages[page])knobs.at(id)->setVisible(true);
+ synthTab.setToggleState(tab==0,dontSendNotification);
+ fxTab.setToggleState(tab==1,dontSendNotification);
+ motionTab.setToggleState(tab==2,dontSendNotification);
+ pollinateSide.setToggleState(tab==3,dontSendNotification);
  repaint();
 }
 void SteamSynthEditor::timerCallback(){
- lastL=lastL*.79f+synth.meterL.load(std::memory_order_relaxed)*.21f;
- lastR=lastR*.79f+synth.meterR.load(std::memory_order_relaxed)*.21f;
- motionPhase+=.075f;
+ const auto smooth=[](float previous,float target){return previous+(target-previous)*(target>previous?.32f:.09f);};
+ meterL=smooth(meterL,juce::jlimit(0.f,1.f,synth.meterL.load(std::memory_order_relaxed)));
+ meterR=smooth(meterR,juce::jlimit(0.f,1.f,synth.meterR.load(std::memory_order_relaxed)));
+ const float rate=synth.state.getRawParameterValue("motionRate")->load(std::memory_order_relaxed);
+ motionPhase+=.03f+.12f*rate;
+ pollinationPhase*=.91f;
+ botanical.setPollinationPhase(pollinationPhase);
+ pollinateButton.repaint();
+ piano.repaint();
+ if(lastEditFrames>0)--lastEditFrames;
  repaint();
 }
 void SteamSynthEditor::resized(){
- const float sx=float(getWidth())/1600.f,sy=float(getHeight())/900.f;
- const auto layout=[&](Component&c,float x,float y,float w,float h){c.setBounds(roundToInt(x*sx),roundToInt(y*sy),roundToInt(w*sx),roundToInt(h*sy));};
- for(const auto& s:artKnobs){
-  const float diameter=float(s.side)*SX;
-  layout(*knobs.at(s.id),SX*float(s.cx)-diameter*.5f,SY*float(s.cy)-diameter*.5f,diameter,diameter);
- }
- layout(synthTab,30,255,145,65);layout(fxTab,30,328,145,65);layout(motionTab,30,402,145,65);
- layout(pollinateSide,30,476,145,68);
- layout(programPrev,523,127,51,59);layout(programSelect,578,128,425,58);layout(programNext,1001,127,53,59);
- layout(saveButton,1063,130,62,56);layout(polySelect,121,779,94,37);
- layout(pollinateButton,988,620,89,90);layout(undoButton,1095,646,61,62);
- layout(sync,812,646,54,55);
- layout(piano,243,738,1007,143);
+ const float sx=float(getWidth())/W,sy=float(getHeight())/H;
+ const auto place=[&](Component&c,float x,float y,float w,float h){c.setBounds(roundToInt(x*sx),roundToInt(y*sy),roundToInt(w*sx),roundToInt(h*sy));};
+ for(const auto& spec:knobSpecs)place(*knobs.at(spec.id),spec.cx-spec.diameter*.5f,spec.cy-spec.diameter*.5f,spec.diameter,spec.diameter);
+ place(synthTab,31,256,150,68);place(fxTab,31,327,150,68);place(motionTab,31,397,150,68);place(pollinateSide,31,467,150,68);
+ place(programPrev,526,122,65,65);place(programSelect,594,130,406,50);place(programNext,970,122,65,65);place(saveButton,1012,122,65,65);
+ place(polySelect,129,777,85,37);
+ place(pollinateButton,988,623,92,92);place(undoButton,1093,640,65,65);
+ place(sync,813,652,40,40);
+ place(piano,269,751,960,132);
 }
-void SteamSynthEditor::drawMovingParts(Graphics&g){
- const float peak=(lastL+lastR)*.5f;
- const bool tapeSync=synth.state.getRawParameterValue("sync")->load(std::memory_order_relaxed)>.5f;
- // Lamp and illuminated controls are animated independently of the stationary artwork.
- if(tapeSync){g.setColour(amber.withAlpha(.32f+.18f*peak));g.fillEllipse(810.f,644.f,23.f,23.f);}
- else{g.setColour(ink.withAlpha(.88f));g.fillEllipse(817.f,651.f,10.f,10.f);}
- // A breathing glass-lamp glow and lit active left-hand selector.
- const float breathe=.5f+.5f*std::sin(motionPhase*.31f);
- ColourGradient warm(amber.withAlpha(.18f+.14f*peak+.03f*breathe),85,120,amber.withAlpha(0.f),142,165,true);
- g.setGradientFill(warm);g.fillEllipse(27.f,48.f,122.f,196.f);
- g.setColour(amber.withAlpha(.15f+.15f*breathe));g.fillRoundedRectangle(36.f,tab==1?337.f:tab==2?411.f:tab==3?484.f:263.f,135.f,50.f,11.f);
- // Echo subdivision readout: the numeric value is printed on the plate, not the knob.
- if(auto* time=synth.state.getRawParameterValue("time")){
-  const float v=juce::jlimit(0.f,1.f,time->load(std::memory_order_relaxed));
-  const juce::String labels[]={"1/32","1/16T","1/16","1/8T","1/8","1/4T","1/4","1/2","1/1"};
-  const int idx=juce::jlimit(0,8,juce::roundToInt(v*8.f));
-  const juce::String value=tapeSync?labels[idx]:juce::String(juce::roundToInt(45.f+2650.f*v*v))+" ms";
-  g.setColour(Colour::fromRGB(74,48,26).withAlpha(.94f));
-  g.setFont(Font(FontOptions("Georgia",13.f,Font::bold)));
-  g.drawFittedText(value,{541,718,79,18},Justification::centred,1);
+void SteamSynthEditor::drawAnimatedHardware(Graphics&g){
+ const float breathe=.5f+.5f*std::sin(motionPhase*.64f);
+ // The glass, frame and piping are stationary; flame, filament and spill light are independent.
+ ColourGradient lamp(amber.withAlpha(.15f+.09f*breathe),101.f,149.f,amber.withAlpha(0.f),163.f,189.f,true);
+ g.setGradientFill(lamp);g.fillEllipse(41.f,70.f,116.f,157.f);
+ if(auto flame=botanical.flame();flame.isValid()){
+  Graphics::ScopedSaveState save(g);
+  g.setOpacity(.70f+.28f*breathe);
+  g.drawImage(flame,{75.f,98.f,57.f,98.f},RectanglePlacement::stretchToFit,false);
  }
- // Genuine two-channel meter readings; separate moving needles track live stereo audio.
- for(int i=0;i<2;++i){
-  const float value=jlimit(0.f,1.f,i?lastR:lastL);
-  const float pivotX=(i?1498.f:1383.f),pivotY=704.f;
-  const float a=(-.55f+value*.98f)+(i?.18f:-.18f);
-  const float dx=std::sin(a)*72.f,dy=std::cos(a)*72.f;
-  g.setColour(Colour::fromRGB(90,42,22).withAlpha(.96f));
-  g.drawLine(pivotX,pivotY,pivotX+dx,pivotY-dy,1.9f);
+ // Real stereo needles with attack/release ballistics, not the reference's baked-in needle art.
+ const auto needle=[&](float pivotX,float level,float shift){
+  const float db=level<=.0001f?-60.f:20.f*std::log10(level);
+  const float t=juce::jlimit(0.f,1.f,(db+45.f)/48.f);
+  const float angle=-.60f+t*1.20f+shift;
+  const float tipX=pivotX+std::sin(angle)*59.f;
+  const float tipY=695.f-std::cos(angle)*59.f;
+  g.setColour(Colour::fromRGB(73,37,17).withAlpha(.5f));g.drawLine(pivotX+1.f,696.f,tipX+1.f,tipY,2.5f);
+  g.setColour(Colour::fromRGB(54,27,14));g.drawLine(pivotX,695.f,tipX,tipY,1.4f);
+  g.setColour(Colour::fromRGB(170,94,43));g.fillEllipse(pivotX-2.5f,692.5f,5.f,5.f);
+ };
+ needle(1343.f,meterL,-.08f);needle(1410.f,meterR,.08f);
+ // Motion oscilloscope: live animated waveform driven by rate, depth and amount.
+ const float depth=synth.state.getRawParameterValue("motionDepth")->load(std::memory_order_relaxed);
+ const float amount=synth.state.getRawParameterValue("motionAmount")->load(std::memory_order_relaxed);
+ {
+  Graphics::ScopedSaveState guard(g);g.reduceClipRegion({1348,778,86,20});
+  Path trace;
+  for(int i=0;i<=90;++i){
+   const float x=1349.f+float(i)*.94f;
+   const float y=789.f-(2.f+6.f*depth)*std::sin(i*.17f+motionPhase)*(0.45f+.55f*amount);
+   if(i==0)trace.startNewSubPath(x,y);else trace.lineTo(x,y);
+  }
+  g.setColour(amber.withAlpha(.20f));g.strokePath(trace,PathStrokeType(4.f));
+  g.setColour(Colour::fromRGB(251,213,102));g.strokePath(trace,PathStrokeType(1.35f));
  }
- // Motion graph performs even with no notes; its alpha is driven by the same main timer.
- Path osc;for(int i=0;i<=66;++i){
-  const float x=1394.f+float(i)*1.42f;
-  const float y=781.f+5.f*std::sin(float(i)*.22f+motionPhase);
-  if(i==0)osc.startNewSubPath(x,y);else osc.lineTo(x,y);
- }
- g.setColour(Colour::fromRGB(250,194,80).withAlpha(.8f));g.strokePath(osc,PathStrokeType(1.4f));
- if(tab!=0){
-  // Do not draw boxes on the main faceplate: only a subtle selection halo on the engraved tab.
-  const float y=tab==1?334.f:408.f;
-  g.setColour(amber.withAlpha(.21f));g.fillRoundedRectangle(35.f,y,139.f,58.f,14.f);
- }
- // Navigation is exact on the approved art; the program title is overprinted only after it changes.
- if(synth.presetName!="The Mangrove Choir"){
-  g.setColour(Colour::fromRGB(53,35,20));g.fillRoundedRectangle(584.f,132.f,416.f,40.f,6.f);
-  letterpress(g,synth.presetName,{591.f,134.f,401.f,35.f},19.f);
- }
- // Polyphony number is dynamically printed into the existing vintage indicator window.
+ // Engraved preset and polyphony windows are independent of the buttons.
+ g.setColour(Colour::fromRGB(49,32,19));g.fillRoundedRectangle(597.f,137.f,396.f,30.f,2.f);
+ italic(g,synth.presetName,{601.f,136.f,388.f,34.f},21.f);
  if(auto* p=synth.state.getRawParameterValue("poly")){
-  const int voices=int(p->load());
-  g.setColour(Colour::fromRGB(65,44,27));g.fillRoundedRectangle(165.f,775.f,37.f,24.f,2.f);
-  g.setColour(Colour::fromRGB(246,210,149));
-  g.setFont(Font(FontOptions("Georgia",17.f,Font::plain)));
-  g.drawText(String(voices),Rectangle<int>{166,776,36,21},Justification::centred);
+  g.setColour(Colour::fromRGB(52,38,22));g.fillRoundedRectangle(148.f,783.f,41.f,21.f,2.f);
+  g.setColour(Colour::fromRGB(245,211,150));g.setFont(Font(FontOptions("Georgia",17.f,Font::plain)));
+  g.drawFittedText(String(juce::roundToInt(p->load())),{148,782,41,22},Justification::centred,1);
  }
- if(tab==1||tab==3){
-  const String help=tab==1?"TONE         DRIFT        DAMP":"SPORE        RESONANCE        WIDTH";
-  g.setColour(parchment.withAlpha(.94f));g.fillRoundedRectangle(1284.f,873.f,249.f,23.f,3.f);
-  g.setColour(ink);g.setFont(Font(FontOptions("Georgia",13.f,Font::plain)));
-  g.drawFittedText(help,{1287,875,240,19},Justification::centred,1);
+ // Echo time always matches the DSP quantization. Sync OFF displays milliseconds.
+ const bool synced=synth.state.getRawParameterValue("sync")->load(std::memory_order_relaxed)>.5f;
+ const float time=juce::jlimit(0.f,1.f,synth.state.getRawParameterValue("time")->load(std::memory_order_relaxed));
+ const String divisions[]={"1/32","1/16T","1/16","1/8T","1/8","1/4T","1/4","1/2","1/1"};
+ const int index=juce::jlimit(0,8,juce::roundToInt(time*8.f));
+ const String label=synced?divisions[index]:String(juce::roundToInt(45.f+2650.f*time*time))+" ms";
+ g.setColour(Colour::fromRGB(77,49,25));g.setFont(Font(FontOptions("Georgia",13.f,Font::plain)));
+ g.drawFittedText(label,{552,713,56,20},Justification::centred,1);
+ // Page-dependent engravings, not a generic rectangular overlay over the artwork.
+ const String heading=tab==1?"E F F E C T S":tab==3?"P O L L I N A T E":"M O T I O N";
+ g.setColour(Colour::fromRGB(70,47,28));g.setFont(Font(FontOptions("Georgia",19.f,Font::plain)));
+ g.drawFittedText(heading,{1280,741,259,26},Justification::centred,1);
+ const String labels[3][3]={{"RATE","DEPTH","AMOUNT"},{"TONE","DRIFT","DAMP"},{"SPORE","ROOT","WIDTH"}};
+ const int page=tab==1?1:tab==3?2:0;
+ g.setFont(Font(FontOptions("Georgia",13.f,Font::plain)));
+ for(int i=0;i<3;++i)g.drawFittedText(labels[page][i],{1272+i*85,861,72,20},Justification::centred,1);
+ if(lastEditFrames>0){
+  if(auto* p=synth.state.getParameter(lastEdited)){
+   const String display=p->getName(80)+"  "+String(p->convertFrom0to1(p->getValue()),2);
+   g.setColour(Colour::fromRGB(68,42,22));g.setFont(Font(FontOptions("Georgia",15.f,Font::italic)));
+   g.drawFittedText(display,{642,174,317,24},Justification::centred,1);
+  }
  }
 }
-void SteamSynthEditor::paint(Graphics& g){
- if(faceplate.isValid())g.drawImage(faceplate,getLocalBounds().toFloat());
- else g.fillAll(parchment);
- Graphics::ScopedSaveState state(g);
- g.addTransform(AffineTransform::scale(float(getWidth())/1600.f,float(getHeight())/900.f));
- drawMovingParts(g);
+void SteamSynthEditor::paint(Graphics&g){
+ if(faceplate.isValid())g.drawImage(faceplate,getLocalBounds().toFloat(),RectanglePlacement::stretchToFit,false);
+ else g.fillAll(Colour::fromRGB(232,199,156));
+ Graphics::ScopedSaveState guard(g);
+ g.addTransform(AffineTransform::scale(float(getWidth())/W,float(getHeight())/H));
+ drawAnimatedHardware(g);
 }
 void SteamSynthEditor::choosePreset(){
  PopupMenu menu;for(int i=0;i<synth.getNumPrograms();++i)menu.addItem(i+1,synth.getProgramName(i),true,i==synth.getCurrentProgram());
- menu.addSeparator();menu.addItem(3001,"Load user preset...");menu.addItem(3002,"Advanced parameters...");
+ menu.addSeparator();menu.addItem(3001,"Load a garden...");menu.addItem(3002,"Save this garden...");
  SafePointer<SteamSynthEditor> weak(this);
- menu.showMenuAsync(PopupMenu::Options().withTargetComponent(&programSelect),[weak](int selected){if(!weak)return;if(selected==3001){weak->showLoadDialog();return;}if(selected==3002){weak->setTab(3);return;}if(selected>0&&selected<=weak->synth.getNumPrograms()){weak->synth.setCurrentProgram(selected-1);weak->repaint();}});
+ menu.showMenuAsync(PopupMenu::Options().withTargetComponent(&programSelect),[weak](int choice){
+  if(!weak)return;
+  if(choice==3001){weak->showLoadDialog();return;}
+  if(choice==3002){weak->showSaveDialog();return;}
+  if(choice>0&&choice<=weak->synth.getNumPrograms()){weak->synth.setCurrentProgram(choice-1);weak->repaint();}
+ });
 }
 void SteamSynthEditor::choosePolyphony(){
- PopupMenu menu;const auto* p=synth.state.getParameter("poly");const int current=p?int(p->convertFrom0to1(p->getValue())):12;
+ PopupMenu menu;const auto* p=synth.state.getParameter("poly");
+ const int current=p?juce::roundToInt(p->convertFrom0to1(p->getValue())):12;
  for(int i=1;i<=16;++i)menu.addItem(i,String(i)+" voices",true,i==current);
  SafePointer<SteamSynthEditor> weak(this);
- menu.showMenuAsync(PopupMenu::Options().withTargetComponent(&polySelect),[weak](int selected){
-  if(!weak||selected<1)return;
+ menu.showMenuAsync(PopupMenu::Options().withTargetComponent(&polySelect),[weak](int choice){
+  if(!weak||choice<1)return;
   if(auto* p=weak->synth.state.getParameter("poly")){
-   p->beginChangeGesture();p->setValueNotifyingHost(p->convertTo0to1(float(selected)));p->endChangeGesture();
+   p->beginChangeGesture();p->setValueNotifyingHost(p->convertTo0to1(float(choice)));p->endChangeGesture();
   }
  });
 }
@@ -214,18 +353,19 @@ void SteamSynthEditor::showSaveDialog(){
  auto dir=File::getSpecialLocation(File::userApplicationDataDirectory).getChildFile("SteamSynth").getChildFile("Presets");dir.createDirectory();
  chooser=std::make_unique<FileChooser>("Save your garden",dir.getChildFile(synth.presetName+".stspreset"),"*.stspreset");
  SafePointer<SteamSynthEditor> weak(this);
- chooser->launchAsync(FileBrowserComponent::saveMode|FileBrowserComponent::canSelectFiles|FileBrowserComponent::warnAboutOverwriting,[weak](const FileChooser& fc){
+ chooser->launchAsync(FileBrowserComponent::saveMode|FileBrowserComponent::canSelectFiles|FileBrowserComponent::warnAboutOverwriting,[weak](const FileChooser&fc){
   if(!weak)return;auto file=fc.getResult();if(file==File{})return;
   MemoryBlock data;weak->synth.presetName=file.getFileNameWithoutExtension();weak->synth.getStateInformation(data);
-  file.replaceWithData(data.getData(),data.getSize());
+  file.replaceWithData(data.getData(),data.getSize());weak->repaint();
  });
 }
 void SteamSynthEditor::showLoadDialog(){
  auto dir=File::getSpecialLocation(File::userApplicationDataDirectory).getChildFile("SteamSynth").getChildFile("Presets");dir.createDirectory();
  chooser=std::make_unique<FileChooser>("Load your garden",dir,"*.stspreset");
  SafePointer<SteamSynthEditor> weak(this);
- chooser->launchAsync(FileBrowserComponent::openMode|FileBrowserComponent::canSelectFiles,[weak](const FileChooser& fc){
+ chooser->launchAsync(FileBrowserComponent::openMode|FileBrowserComponent::canSelectFiles,[weak](const FileChooser&fc){
   if(!weak)return;auto file=fc.getResult();if(!file.existsAsFile())return;
   MemoryBlock data;if(file.loadFileAsData(data))weak->synth.setStateInformation(data.getData(),int(data.getSize()));
+  weak->repaint();
  });
 }

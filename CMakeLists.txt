@@ -15,7 +15,7 @@ if(STEAMSYNTH_BUILD_PLUGIN)
   include(FetchContent)
   FetchContent_Declare(JUCE GIT_REPOSITORY https://github.com/juce-framework/JUCE.git GIT_TAG 8.0.10 GIT_SHALLOW TRUE)
   FetchContent_MakeAvailable(JUCE)
-  juce_add_binary_data(SteamSynthUIAssets SOURCES assets/ui/faceplate.jpg assets/ui/knob_atlas.png)
+  juce_add_binary_data(SteamSynthUIAssets SOURCES assets/ui/plate.jpg assets/ui/hardware.png)
   juce_add_plugin(SteamSynth
     COMPANY_NAME "ThomC"
     BUNDLE_ID "com.thomc.steamsynth"

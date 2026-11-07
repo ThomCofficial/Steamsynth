@@ -19,12 +19,22 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate interactive hardware assets
+        run: |
+          python -m pip install pillow
+          python tests/ui_asset_check.py
       - name: Configure VST3/Standalone with JUCE 8
         run: cmake -S . -B build-plugin -A x64 -DSTEAMSYNTH_BUILD_PLUGIN=ON -DBUILD_TESTING=ON
       - name: Build release VST3 and standalone
         run: cmake --build build-plugin --config Release --parallel 2
       - name: Test DSP
         run: ctest --test-dir build-plugin --build-config Release --output-on-failure
+      - name: Publish actual editor render for visual inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: SteamSynth-UI-Smoke
+          path: build-plugin/SteamSynth-UI-smoke.png
+          if-no-files-found: error
       - name: Collect VST3
         shell: pwsh
         run: |
