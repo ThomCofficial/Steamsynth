@@ -35,11 +35,11 @@ BotanicalLookAndFeel::BotanicalLookAndFeel(){
  hardware=ImageCache::getFromMemory(BinaryData::hardware_png,BinaryData::hardware_pngSize);
  if(!hardware.isValid())return;
  auto crop=[this](int x,int y,int w,int h){return hardware.getClippedImage({x,y,w,h});};
- for(int i=0;i<5;++i){rings[i]=crop(i*190,0,184,184);medallions[i]=crop(i*190,190,184,184);}
+ for(int i=0;i<5;++i)largeKnobs[i]=crop(i*190,0,184,184);
  for(int i=0;i<9;++i)smallKnobs[i]=crop(i*65,389,60,60);
  for(int i=0;i<4;++i){tabNormal[i]=crop(i*154,492,150,68);tabLit[i]=crop(i*154,565,150,68);}
  for(int i=0;i<3;++i)presetHardware[i]=crop(i*70,645,65,65);
- flower=crop(700,389,92,92);flowerRing=crop(800,389,92,92);
+ flower=crop(700,389,92,92);
  whiteUp=crop(0,738,40,132);whiteDown=crop(48,738,40,132);
  blackUp=crop(102,738,20,72);blackDown=crop(130,738,20,72);
  led=crop(170,738,32,32);flameSprite=crop(230,736,70,100);
@@ -52,24 +52,21 @@ void BotanicalLookAndFeel::drawRotarySlider(Graphics&g,int x,int y,int w,int h,f
  const int i=indexOf(slider.getName());if(i<0)return;
  const float cx=x+w*.5f,cy=y+h*.5f;
  const Rectangle<float> dest{float(x),float(y),float(w),float(h)};
- const float angle=-2.34f+juce::jlimit(0.f,1.f,value)*4.68f;
- if(i<5){
-  // Botanical medallion is a fixed, independently fabricated inlay.
-  paintSprite(g,medallions[unsigned(i)],dest);
-  // Only the metal rim, including its integral pointer, rotates.
-  Graphics::ScopedSaveState guard(g);
-  g.addTransform(AffineTransform::rotation(angle,cx,cy));
-  paintSprite(g,rings[unsigned(i)],dest);
-  if(i==2){
-   g.setColour(amber.withAlpha(.09f+.08f*value));
-   g.drawEllipse(dest.reduced(8.f),2.f);
-  }
- }else{
-  const int j=i>=11?6+(i-11)%3:i-5;
-  Graphics::ScopedSaveState guard(g);
-  g.addTransform(AffineTransform::rotation(angle,cx,cy));
-  paintSprite(g,smallKnobs[unsigned(j)],dest);
- }
+ const bool large=i<5;
+ const int smallIndex=large?0:(i>=11?6+(i-11)%3:i-5);
+ const Image& sprite=large?largeKnobs[unsigned(i)]:smallKnobs[unsigned(smallIndex)];
+ if(!sprite.isValid())return;
+ // Like Steamstrip: ONE photographed, transparent brass knob rotates as a rigid body.
+ // No second ring, no stationary pointer on the medallion, no baked knob on the plate.
+ // Calibrate each asset's photographed pointer angle so MIDI/host automation and
+ // mouse dragging agree with the printed -134 to +134 degree dial scale.
+ constexpr float photographedLarge=.61f;
+ constexpr float photographedSmall[9]={.38f,-.50f,.42f,.35f,.35f,-.12f,0.f,0.f,0.f};
+ const float photographed=large?photographedLarge:photographedSmall[smallIndex];
+ const float angle=-2.34f+juce::jlimit(0.f,1.f,value)*4.68f-photographed;
+ Graphics::ScopedSaveState guard(g);
+ g.addTransform(AffineTransform::rotation(angle,cx,cy));
+ paintSprite(g,sprite,dest);
 }
 void BotanicalLookAndFeel::drawButtonBackground(Graphics&g,Button& b,const Colour&,bool hover,bool down){
  const auto id=b.getName();
@@ -88,14 +85,12 @@ void BotanicalLookAndFeel::drawButtonBackground(Graphics&g,Button& b,const Colou
  }
  if(id=="pollinate_main"){
   const float pulse=.5f+.5f*std::sin(pollinationPhase);
-  g.setColour(amber.withAlpha(.08f+.20f*pulse));g.fillEllipse(r.expanded(2.f));
+  g.setColour(amber.withAlpha(.07f+.15f*pulse));g.fillEllipse(r.expanded(2.f));
+  // Complete carved flower knob. Never superimpose a second translucent ring.
+  Graphics::ScopedSaveState guard(g);
+  g.addTransform(AffineTransform::rotation(.045f*std::sin(pollinationPhase),r.getCentreX(),r.getCentreY()));
   paintSprite(g,flower,r);
-  {
-   Graphics::ScopedSaveState guard(g);
-   g.addTransform(AffineTransform::rotation(.1f+pollinationPhase*.20f,r.getCentreX(),r.getCentreY()));
-   paintSprite(g,flowerRing,r);
-  }
-  if(hover){g.setColour(amber.withAlpha(.24f));g.drawEllipse(r.reduced(3.f),2.f);}
+  if(hover){g.setColour(amber.withAlpha(.16f));g.drawEllipse(r.reduced(3.f),1.5f);}
   return;
  }
  if(id=="undo"){

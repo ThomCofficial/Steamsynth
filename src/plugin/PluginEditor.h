@@ -19,11 +19,11 @@ public:
  juce::Image flame() const {return flameSprite;}
 private:
  juce::Image hardware;
- std::array<juce::Image,5> rings,medallions;
+ std::array<juce::Image,5> largeKnobs;
  std::array<juce::Image,9> smallKnobs;
  std::array<juce::Image,4> tabNormal,tabLit;
  std::array<juce::Image,3> presetHardware;
- juce::Image flower,flowerRing,whiteUp,whiteDown,blackUp,blackDown,led,flameSprite,undoSprite;
+ juce::Image flower,whiteUp,whiteDown,blackUp,blackDown,led,flameSprite,undoSprite;
  float pollinationPhase=0.f;
  static void paintSprite(juce::Graphics&,const juce::Image&,juce::Rectangle<float>);
 };

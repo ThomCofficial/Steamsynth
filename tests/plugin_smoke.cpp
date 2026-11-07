@@ -31,7 +31,6 @@ int main(){
  auto editor=std::unique_ptr<juce::AudioProcessorEditor>(processor.createEditor());
  if(!editor||editor->getWidth()!=1600||editor->getHeight()!=900)return 4;
  // Paint the ACTUAL complete editor (children included) to a diagnostic PNG.
- // This exposes white keyboard overlays, missing assets and broken component geometry.
  juce::Image image(juce::Image::ARGB,1600,900,true);
  juce::Graphics graphics(image);
  editor->paintEntireComponent(graphics,true);
@@ -41,7 +40,35 @@ int main(){
  auto stream=file.createOutputStream();
  if(!stream||!juce::PNGImageFormat().writeImageToStream(image,*stream))return 6;
  stream->flush();
+ // Verify each major knob is a LIVE rendered control, not a painted backdrop.
+ struct Control {const char* id;int x,y;};
+ const Control controls[]={
+  {"seed",345,306},{"grow",600,306},{"mutate",850,306},
+  {"dirt",1100,306},{"bloom",1360,306},
+  {"attack",279,666},{"echoMix",779,666}
+ };
+ for(const auto& c:controls){
+  auto* parameter=processor.state.getParameter(c.id);
+  if(!parameter)return 7;
+  parameter->setValueNotifyingHost(.13f);
+  juce::Image low(juce::Image::ARGB,1600,900,true);
+  juce::Graphics lowGraphics(low);editor->paintEntireComponent(lowGraphics,true);
+  parameter->setValueNotifyingHost(.87f);
+  juce::Image high(juce::Image::ARGB,1600,900,true);
+  juce::Graphics highGraphics(high);editor->paintEntireComponent(highGraphics,true);
+  int changed=0;
+  const int r=(c.x>300&&c.y==306)?70:23;
+  for(int y=c.y-r;y<c.y+r;y+=4)for(int x=c.x-r;x<c.x+r;x+=4){
+   const auto a=low.getPixelAt(x,y),b=high.getPixelAt(x,y);
+   if(std::abs(int(a.getRed())-int(b.getRed()))+
+      std::abs(int(a.getGreen())-int(b.getGreen()))+
+      std::abs(int(a.getBlue())-int(b.getBlue()))>35)++changed;
+  }
+  if(changed<20){std::cerr<<"FAIL: knob not visually responding: "<<c.id<<" pixels="<<changed<<"\n";return 8;}
+  // The scale printed ABOVE the knob must not rotate or move.
+  if(c.y==306&&low.getPixelAt(c.x,200)!=high.getPixelAt(c.x,200))return 9;
+ }
  editor.reset();processor.releaseResources();
- std::cout<<"PASS: MIDI, bounded audio, state, pollination, presets, layered editor, rendered UI screenshot\n";
+ std::cout<<"PASS: MIDI, bounded audio, state, pollination, presets, 7 interactive brass knobs, rendered UI screenshot\n";
  return 0;
 }
