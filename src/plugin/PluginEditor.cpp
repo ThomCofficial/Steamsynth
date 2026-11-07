@@ -8,7 +8,7 @@
 namespace {
 using namespace juce;
 constexpr float W=1600.f,H=900.f;
-constexpr Colour amber{0xfff3a848}, ink{0xff4b2d18};
+const Colour amber{0xfff3a848}, ink{0xff4b2d18};
 struct KnobSpec {const char* id;float cx,cy,diameter;};
 constexpr KnobSpec knobSpecs[]={
  {"seed",345,306,184},{"grow",600,306,184},{"mutate",850,306,184},
