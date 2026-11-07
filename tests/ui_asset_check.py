@@ -5,7 +5,6 @@ not a flattened UI image with a second, misaligned rim painted on top.
 """
 from pathlib import Path
 from PIL import Image, ImageChops
-import numpy as np
 p=Path(__file__).resolve().parents[1]/'assets'/'ui'
 plate=Image.open(p/'plate.jpg').convert('RGB')
 a=Image.open(p/'hardware.png').convert('RGBA')
