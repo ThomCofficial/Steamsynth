@@ -45,7 +45,7 @@ void BotanicalLookAndFeel::drawRotarySlider(Graphics&g,int x,int y,int w,int h,f
   const float delta=(proportion-s->normal)*4.40f;
   const float cx=x+w*.5f,cy=y+h*.5f;
   g.addTransform(AffineTransform::rotation(delta,cx,cy));
-  g.drawImage(atlas,Rectangle<float>(float(x),float(y),float(w),float(h)),Rectangle<float>(float(s->ax),float(s->ay),float(s->side),float(s->side)),false);
+  g.drawImage(atlas,x,y,w,h,s->ax,s->ay,s->side,s->side,false);
  }
 }
 SteamSynthEditor::SteamSynthEditor(SteamSynthProcessor& p):AudioProcessorEditor(p),synth(p),piano(p.keyboard){
@@ -81,7 +81,7 @@ void SteamSynthEditor::addKnob(const char* id){
  slider->setRotaryParameters(-2.4f,2.4f,true);
  slider->setPopupDisplayEnabled(true,true,this);
  slider->setScrollWheelEnabled(true);
- slider->setDoubleClickReturnValue(true,synth.state.getParameter(id)->getDefaultValue());
+ slider->setDoubleClickReturnValue(true,synth.state.getParameter(id)->convertFrom0to1(synth.state.getParameter(id)->getDefaultValue()));
  slider->setTooltip(synth.state.getParameter(id)->getName(120));
  addAndMakeVisible(*slider);
  attachments.push_back(std::make_unique<AudioProcessorValueTreeState::SliderAttachment>(synth.state,id,*slider));
@@ -158,7 +158,7 @@ void SteamSynthEditor::drawMovingParts(Graphics&g){
   g.setColour(Colour::fromRGB(65,44,27));g.fillRoundedRectangle(165.f,775.f,37.f,24.f,2.f);
   g.setColour(Colour::fromRGB(246,210,149));
   g.setFont(Font(FontOptions("Georgia",17.f,Font::plain)));
-  g.drawText(String(voices),{166,776,36,21},Justification::centred);
+  g.drawText(String(voices),Rectangle<int>{166,776,36,21},Justification::centred);
  }
  if(tab==1||tab==3){
   const String help=tab==1?"TONE         DRIFT        DAMP":"SPORE        RESONANCE        WIDTH";
