@@ -1,0 +1,38 @@
+name: SteamSynth build and DSP stress
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  dsp:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure DSP tests
+        run: cmake -S . -B build-dsp -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build DSP tests
+        run: cmake --build build-dsp --config Release --parallel
+      - name: Run DSP stress tests
+        run: ctest --test-dir build-dsp --build-config Release --output-on-failure
+  plugin:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure VST3/Standalone with JUCE 8
+        run: cmake -S . -B build-plugin -A x64 -DSTEAMSYNTH_BUILD_PLUGIN=ON -DBUILD_TESTING=ON
+      - name: Build release VST3 and standalone
+        run: cmake --build build-plugin --config Release --parallel 2
+      - name: Test DSP
+        run: ctest --test-dir build-plugin --build-config Release --output-on-failure
+      - name: Collect VST3
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item 'build-plugin/SteamSynth_artefacts/Release/VST3/SteamSynth.vst3' 'dist/' -Recurse
+      - name: Publish VST3 build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SteamSynth-Windows-VST3
+          path: dist/SteamSynth.vst3
+          if-no-files-found: error
