@@ -23,10 +23,24 @@ public:
  void paint(juce::Graphics&) override;
  void resized() override;
 private:
- class InvisibleKeyboard final : public juce::MidiKeyboardComponent {
+ class InvisibleKeyboard final : public juce::Component {
  public:
-  explicit InvisibleKeyboard(juce::MidiKeyboardState& st):juce::MidiKeyboardComponent(st,juce::MidiKeyboardComponent::horizontalKeyboard){}
-  void paint(juce::Graphics&) override {} // Click and MIDI handling only; approved painted keys stay visible.
+  explicit InvisibleKeyboard(juce::MidiKeyboardState& st):state(st){setInterceptsMouseClicks(true,false);}
+  void paint(juce::Graphics&) override {} // No opaque JUCE keyboard over the original illustrated keys.
+  void mouseDown(const juce::MouseEvent& e) override {updateNote(e.position);}
+  void mouseDrag(const juce::MouseEvent& e) override {updateNote(e.position);}
+  void mouseUp(const juce::MouseEvent&) override {release();}
+  void mouseExit(const juce::MouseEvent&) override {release();}
+ private:
+  juce::MidiKeyboardState& state;
+  int playing=-1;
+  void release(){if(playing>=0){state.noteOff(1,playing,0.f);playing=-1;}}
+  void updateNote(juce::Point<float> p){
+   const float x=juce::jlimit(0.f,1.f,p.x/juce::jmax(1.f,float(getWidth())));
+   const int next=juce::jlimit(48,95,48+int(x*48.f));
+   if(next==playing)return;
+   release();playing=next;state.noteOn(1,playing,0.85f);
+  }
  };
  SteamSynthProcessor& synth;
  BotanicalLookAndFeel botanical;
