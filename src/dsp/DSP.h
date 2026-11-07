@@ -39,68 +39,115 @@ struct Pole {
   return re;
  }
 };
+// Five continuously crossfaded organic exciter families, one evolving resonator garden.
+// Included from DSP.h inside namespace steam, after Macro, Pole, RNG and helpers.
+// No heap allocation, locks, or trigonometric coefficient calculation on each sample.
 class Voice {
 public:
- void prepare(double sampleRate) noexcept {sr=std::clamp(sampleRate,8000.,384000.);reset();}
- void reset() noexcept {gate=false;rel=false;phase=0;phase2=0;env=age=0;smoothedSeed=.5f;smoothedMutation=.5f;tickCounter=0;lastOut=0;stealTail=0;for(auto &p:poles)p.clear();rng.s=0x9e3779b9u;}
- void start(int n,float v,uint64_t when) noexcept {const float previous=gate?lastOut:0.f;reset();stealTail=previous;note=n;velocity=clip01(v);startOrder=when;gate=true;freq=440.f*std::exp2((float(n)-69.f)/12.f);currentFreq=freq;rng.s=0x1234567u+uint32_t(n)*127u+uint32_t(when)*17u;}
+ void prepare(double sampleRate) noexcept { sr=std::clamp(sampleRate,8000.,384000.);reset(); }
+ void reset() noexcept {
+  gate=rel=false;phase=phase2=phase3=phase4=0.f;age=env=0.f;
+  smoothedSeed=.5f;smoothedMutation=.5f;noiseLP=motion=lastOut=stealTail=0.f;
+  tickCounter=0;for(auto &p:poles)p.clear();rng.s=0x9e3779b9u;
+ }
+ void start(int n,float v,uint64_t when) noexcept {
+  const float previous=gate?lastOut:0.f;
+  reset();stealTail=previous;note=n;velocity=clip01(v);startOrder=when;
+  gate=true;freq=440.f*std::exp2((float(n)-69.f)/12.f);currentFreq=freq;
+  rng.s=0x1234567u+uint32_t(n)*127u+uint32_t(when)*17u;
+  dna=float((rng.s*747796405u+2891336453u)&65535u)/65535.f;
+  phase2=dna*.37f;phase3=dna*.71f;phase4=dna*.13f;
+ }
  void off() noexcept {rel=true;}
  bool active() const noexcept {return gate;}
  bool isReleasing() const noexcept {return rel;}
  int midiNote() const noexcept {return note;}
  uint64_t order() const noexcept {return startOrder;}
- void bend(float semitones) noexcept { bendSemitones=std::clamp(finite(semitones),-24.f,24.f); }
+ void bend(float semitones) noexcept {bendSemitones=std::clamp(finite(semitones),-24.f,24.f);}
  void expression(float e) noexcept {expr=clip01(e);}
  float render(const Macro &m) noexcept {
   if(!gate)return 0.f;
-  const float a=.002f+5.f*m.attack*m.attack, r=.01f+11.f*m.release*m.release;
+  const float attack=.002f+5.f*m.attack*m.attack,release=.01f+11.f*m.release*m.release;
   const float target=rel?0.f:1.f;
-  const float coefficient=std::exp(-1.f/(float(sr)*(rel?r:a)));
-  env=target+(env-target)*coefficient;
-  if(rel && env<.00003f){gate=false;return 0.f;}
+  const float coeff=std::exp(-1.f/(float(sr)*(rel?release:attack)));
+  env=target+(env-target)*coeff;
+  if(rel&&env<.00003f){gate=false;return 0.f;}
   age+=1.f/float(sr);
-  const float motion=std::sin(2.f*pi*age*(.035f+2.8f*m.motionRate*m.motionRate));
-  const float growth=clip01(age/(.18f+10.f*(1.f-m.grow)));
-  smoothedSeed+=.002f*(clip01(m.seed)-smoothedSeed);
-  smoothedMutation+=.001f*(clip01(m.mutate)-smoothedMutation);
-  const float evolving=clip01(smoothedSeed + m.grow*(growth-.5f)*.58f +motion*m.motionDepth*m.motionAmount*.22f);
-  float wantedFreq=freq*std::exp2(bendSemitones/12.f);
-  float slew= m.glide<.005f ? 1.f : hzToCoeff(1.f/(.005f+m.glide*m.glide*1.8f),sr);
+  const float smooth=hzToCoeff(19.f,sr);
+  smoothedSeed+=smooth*(clip01(m.seed)-smoothedSeed);
+  smoothedMutation+=smooth*(clip01(m.mutate)-smoothedMutation);
+  const float mutation=smoothedMutation;
+  const float growth=clip01(age/(.13f+5.f*(1.f-clip01(m.grow))));
+  const float lfoRate=.035f+2.8f*m.motionRate*m.motionRate;
+  ++tickCounter;
+  if((tickCounter&31)==0)motion=std::sin(2.f*pi*age*lfoRate);
+  const float movement=motion*m.motionDepth*m.motionAmount;
+  const float seedPos=std::clamp(smoothedSeed*4.f+growth*m.grow*.65f+movement*.18f,0.f,4.f);
+  const float wantedFreq=freq*std::exp2(bendSemitones/12.f);
+  const float slew=m.glide<.005f?1.f:hzToCoeff(1.f/(.005f+m.glide*m.glide*1.8f),sr);
   currentFreq+=slew*(wantedFreq-currentFreq);
   const float step=std::clamp(currentFreq/float(sr),.000005f,.45f);
-  phase+=step; if(phase>=1.f)phase-=1.f;
-  phase2+=std::min(.45f,step*1.0043f);if(phase2>=1.f)phase2-=1.f;
+  phase+=step;if(phase>=1.f)phase-=1.f;
+  const float ratio2=1.005f+mutation*(1.55f+dna*.7f)+growth*m.grow*.12f;
+  const float ratio3=.498f+mutation*.18f;
+  const float ratio4=2.01f+mutation*(2.6f+dna);
+  phase2+=std::min(.49f,step*ratio2);if(phase2>=1.f)phase2-=1.f;
+  phase3+=std::min(.49f,step*ratio3);if(phase3>=1.f)phase3-=1.f;
+  phase4+=std::min(.49f,step*ratio4);if(phase4>=1.f)phase4-=1.f;
   const float sine=std::sin(2.f*pi*phase);
+  const float sub=std::sin(2.f*pi*phase3);
+  const float mod=std::sin(2.f*pi*phase2);
+  const float highNoteSafety=clip01((.34f-step)/.30f);
+  const float index=(.05f+mutation*2.7f+growth*m.grow*1.8f+movement*.45f)*highNoteSafety;
+  const float fm=std::sin(2.f*pi*phase+index*mod);
   const float saw=2.f*phase-1.f-polyBlep(phase,step);
-  const float pulse=(phase<.44f?1.f:-1.f)+polyBlep(phase,step)-polyBlep(std::fmod(phase+.56f,1.f),step);
-  const float alt=std::sin(2.f*pi*phase2);
-  // smooth evolution of nontrivial band-limited harmonic shapes
-  const float timbre=evolving<.5f?lerp(sine,saw,evolving*2.f):lerp(saw,pulse,(evolving-.5f)*2.f);
-  const float seed= .67f*timbre+.20f*alt+.13f*sine;
-  const float flutter=rng.bipolar()*(.001f+.09f*m.spore*smoothedMutation);
-  float modal=0;
-  ++tickCounter;
-  for(int i=0;i<4;++i){
+  const float width=std::clamp(.48f+mutation*.21f+movement*.08f,.16f,.84f);
+  const float pulse=(phase<width?1.f:-1.f)+polyBlep(phase,step)-polyBlep(std::fmod(phase+1.f-width,1.f),step);
+  const float metal=sine*std::sin(2.f*pi*phase4);
+  const float white=rng.bipolar();
+  const float dustCoeff=hzToCoeff(700.f+4200.f*mutation,sr);
+  noiseLP+=dustCoeff*(white-noiseLP);
+  const float pluck=1.f/(1.f+age*(3.f+13.f*(1.f-m.grow)));
+  float modal=0.f,formant=0.f;
+  constexpr float partials[6]={1.13f,1.98f,2.72f,3.89f,5.44f,7.17f};
+  const float excitation=(.42f*saw+.25f*fm+.16f*pulse+noiseLP*(.08f+.3f*mutation))*(.35f+.65f*pluck);
+  for(int i=0;i<6;++i){
    auto &p=poles[unsigned(i)];
-   if(tickCounter%32==0 || p.cr==0.f){
-    const float harmonic=(i==0?1.23f:i==1?2.11f:i==2?3.72f:5.61f);
-    const float detune=1.f+smoothedMutation*(.12f+.055f*float(i))*std::sin(.37f*age + i*1.7f +motion*.8f);
-    const float f=std::min(float(sr)*.42f,currentFreq*harmonic*detune);
-    const float decay=.025f+ (.12f+1.5f*m.resonance)/(1.f+float(i));
+   if((tickCounter&31)==0||p.cr==0.f){
+    const float stretch=1.f+mutation*(.06f+.12f*float(i))*std::sin(float(i)*1.77f+dna*3.f+age*(.19f+movement*.1f));
+    const float f=std::min(float(sr)*.42f,currentFreq*partials[i]*stretch);
+    const float decay=.028f+(.1f+1.7f*m.resonance+growth*m.grow*.8f)/(1.f+float(i)*.48f);
     const float radius=std::exp(-1.f/(float(sr)*decay));
     p.cr=radius*std::cos(2.f*pi*f/float(sr));p.ci=radius*std::sin(2.f*pi*f/float(sr));
-    p.drive=(.012f+.036f*m.resonance)/(1.f+float(i)*.24f);
+    p.drive=(.012f+.045f*m.resonance)/(1.f+float(i)*.30f);
    }
-   modal+=p.tick(seed*.12f+flutter) * (.3f/(1.f+float(i)*.26f));
+   const float s=p.tick(excitation);
+   modal+=s*(.30f/(1.f+float(i)*.33f));
+   if(i==0||i==2||i==4)formant+=s*(i==2?-.34f:.30f);
   }
-  const float x=(seed*.7f+ modal*(.5f+smoothedMutation*.7f)+ flutter*.2f)*env*velocity*(.8f+.2f*expr);
-  float out=safe(fastSat(x*1.38f)*1.4f);
+  const float root=.75f*sine+.22f*sub+.08f*fm;
+  const float reed=.50f*saw+.22f*pulse+.25f*noiseLP+.25f*modal;
+  const float glass=.68f*fm+.34f*modal*(.8f+1.2f*pluck)+.14f*metal;
+  const float choir=.43f*fm+.29f*sine+.28f*formant+.18f*sub;
+  const float machine=.42f*metal+.28f*pulse+.29f*modal+.13f*noiseLP;
+  const float families[5]={root,reed,glass,choir,machine};
+  const int i=std::min(3,int(seedPos));
+  float mix=seedPos-float(i);mix=mix*mix*(3.f-2.f*mix);
+  const float organic=lerp(families[i],families[i+1],mix);
+  const float signal=organic*(.83f+.17f*growth)+modal*(.06f+.23f*mutation);
+  float out=fastSat(signal*1.5f)*1.32f*env*velocity*(.8f+.2f*expr);
   if(std::abs(stealTail)>.00001f){out+=stealTail;stealTail*=std::exp(-1.f/(float(sr)*.002f));}
-  lastOut=out;return safe(out);
+  lastOut=out;
+  return safe(out);
  }
 private:
- double sr=48000;float freq=440,currentFreq=440,phase=0,phase2=0,env=0,age=0,velocity=0,expr=0,bendSemitones=0,smoothedSeed=.5f,smoothedMutation=.5f,lastOut=0,stealTail=0;
- int note=-1,tickCounter=0;uint64_t startOrder=0;bool gate=false,rel=false;RNG rng;std::array<Pole,4> poles{};
+ double sr=48000.;
+ float freq=440.f,currentFreq=440.f,phase=0.f,phase2=0.f,phase3=0.f,phase4=0.f;
+ float env=0.f,age=0.f,velocity=0.f,expr=1.f,bendSemitones=0.f;
+ float smoothedSeed=.5f,smoothedMutation=.5f,noiseLP=0.f,motion=0.f,dna=0.f;
+ float lastOut=0.f,stealTail=0.f;
+ int note=-1,tickCounter=0;uint64_t startOrder=0;bool gate=false,rel=false;
+ RNG rng;std::array<Pole,6> poles{};
 };
 class Voices {
 public:
@@ -171,7 +218,7 @@ public:
   wet=clip01(wet);feedback=clip01(feedback);tone=clip01(tone);
   if(wet<.0001f&&feedback<.0001f)return;
   const double beats=std::clamp(std::isfinite(bpm)?bpm:120.,25.,300.);
-  const double target=(sync?(60.0/beats)*(0.125*std::exp2(clip01(time)*4.0)):(.045+2.65*clip01(time)*clip01(time)))*sr;
+  const double target=(sync?(60.0/beats)*([&](){ constexpr double divisions[]={0.125,1.0/6.0,0.25,1.0/3.0,0.5,2.0/3.0,1.0,2.0,4.0}; return divisions[std::clamp(int(std::lround(clip01(time)*8.f)),0,8)];}()):(.045+2.65*clip01(time)*clip01(time)))*sr;
   const double wanted=std::clamp(target,4.,double(len)-5.);
   delayS+=(wanted-delayS)*.00006;
   phase+=1.f/float(sr);if(phase>10000.f)phase=0;
