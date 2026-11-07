@@ -40,6 +40,20 @@ int main(){
  auto stream=file.createOutputStream();
  if(!stream||!juce::PNGImageFormat().writeImageToStream(image,*stream))return 6;
  stream->flush();
+ // Parameter-to-slider attachments may deliver updates asynchronously on JUCE's
+ // message thread. Flush them before capturing either frame to avoid a false
+ // pixel-diff failure caused by two identical slider positions.
+ const auto flushUI=[] {
+  if(auto* mm=juce::MessageManager::getInstanceWithoutCreating())
+   mm->runDispatchLoopUntil(70);
+ };
+ const auto findSlider=[&](const char* name)->juce::Slider* {
+  for(int i=0;i<editor->getNumChildComponents();++i){
+   auto* child=editor->getChildComponent(i);
+   if(child->getName()==name)return dynamic_cast<juce::Slider*>(child);
+  }
+  return nullptr;
+ };
  // Verify each major knob is a LIVE rendered control, not a painted backdrop.
  struct Control {const char* id;int x,y;};
  const Control controls[]={
@@ -49,11 +63,21 @@ int main(){
  };
  for(const auto& c:controls){
   auto* parameter=processor.state.getParameter(c.id);
-  if(!parameter)return 7;
+  auto* slider=findSlider(c.id);
+  if(!parameter||!slider){std::cerr<<"FAIL: knob missing: "<<c.id<<"\n";return 7;}
   parameter->setValueNotifyingHost(.13f);
+  flushUI();
+  const double lowValue=slider->getValue();
   juce::Image low(juce::Image::ARGB,1600,900,true);
   juce::Graphics lowGraphics(low);editor->paintEntireComponent(lowGraphics,true);
   parameter->setValueNotifyingHost(.87f);
+  flushUI();
+  const double highValue=slider->getValue();
+  if(std::abs(highValue-lowValue)<.5){
+   std::cerr<<"FAIL: parameter-to-slider attachment not updating: "<<c.id
+            <<" low="<<lowValue<<" high="<<highValue<<"\n";
+   return 8;
+  }
   juce::Image high(juce::Image::ARGB,1600,900,true);
   juce::Graphics highGraphics(high);editor->paintEntireComponent(highGraphics,true);
   int changed=0;
@@ -64,7 +88,8 @@ int main(){
       std::abs(int(a.getGreen())-int(b.getGreen()))+
       std::abs(int(a.getBlue())-int(b.getBlue()))>35)++changed;
   }
-  if(changed<20){std::cerr<<"FAIL: knob not visually responding: "<<c.id<<" pixels="<<changed<<"\n";return 8;}
+  if(changed<20){std::cerr<<"FAIL: knob not visually responding: "<<c.id
+   <<" pixels="<<changed<<" low="<<lowValue<<" high="<<highValue<<"\n";return 8;}
   // The scale printed ABOVE the knob must not rotate or move.
   if(c.y==306&&low.getPixelAt(c.x,200)!=high.getPixelAt(c.x,200))return 9;
  }
