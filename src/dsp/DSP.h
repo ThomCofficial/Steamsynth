@@ -126,7 +126,7 @@ private:
 class Cassette {
 public:
  void prepare(double s){sr=std::clamp(s,8000.,384000.);size=size_t(sr*.15)+8;bufL.assign(size,0);bufR.assign(size,0);write=0;lpL=lpR=dcxL=dcxR=dcyL=dcyR=0;phase=0;}
- void reset() noexcept {std::fill(bufL.begin(),bufL.end(),0);std::fill(bufR.begin(),bufR.end(),0);write=0;lpL=lpR=dcxL=dcxR=dcyL=dcyR=0;}
+ void reset() noexcept {std::fill(bufL.begin(),bufL.end(),0.0f);std::fill(bufR.begin(),bufR.end(),0.0f);write=0;lpL=lpR=dcxL=dcxR=dcyL=dcyR=0;}
  void process(float &l,float &r,float amount,float drift) noexcept {
   amount=clip01(amount);drift=clip01(drift);
   if(amount<.0001f)return;
