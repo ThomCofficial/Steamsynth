@@ -39,15 +39,23 @@ BotanicalLookAndFeel::BotanicalLookAndFeel(){
  atlas=juce::ImageCache::getFromMemory(BinaryData::knob_atlas_png,BinaryData::knob_atlas_pngSize);
 }
 void BotanicalLookAndFeel::drawRotarySlider(Graphics&g,int x,int y,int w,int h,float proportion,float,float,Slider& slider){
- if(auto* s=findSprite(slider.getName())) {
-  if(!atlas.isValid())return;
-  Graphics::ScopedSaveState scoped(g);
-  const float delta=(proportion-s->normal)*4.40f;
-  const float cx=x+w*.5f,cy=y+h*.5f;
-  g.addTransform(AffineTransform::rotation(delta,cx,cy));
-  g.drawImage(atlas,x,y,w,h,s->ax,s->ay,s->side,s->side,false);
- }
+ // The engraved faceplate and botanical imagery never rotate.
+ // Only the thin brass indicator needle moves above the stationary art.
+ const auto* sprite=findSprite(slider.getName());
+ if(!sprite)return;
+ const float cx=x+w*.5f,cy=y+h*.5f;
+ const float angle=-2.30f+proportion*4.60f;
+ const float radius=std::min(w,h)*.39f;
+ const float dx=std::sin(angle),dy=-std::cos(angle);
+ g.setColour(Colour::fromRGB(28,18,12).withAlpha(.45f));
+ g.drawLine(cx+1.2f,cy+1.2f,cx+dx*radius+1.2f,cy+dy*radius+1.2f,std::max(2.2f,w*.027f));
+ g.setColour(Colour::fromRGB(42,29,19));
+ g.drawLine(cx,cy,cx+dx*radius,cy+dy*radius,std::max(1.7f,w*.022f));
+ g.setColour(Colour::fromRGB(244,204,127));
+ g.drawLine(cx-dx*radius*.07f,cy-dy*radius*.07f,cx+dx*radius*.73f,cy+dy*radius*.73f,std::max(1.f,w*.008f));
+ g.setColour(Colour::fromRGB(55,32,15));g.fillEllipse(cx-w*.032f,cy-w*.032f,w*.064f,w*.064f);
 }
+
 SteamSynthEditor::SteamSynthEditor(SteamSynthProcessor& p):AudioProcessorEditor(p),synth(p),piano(p.keyboard){
  setLookAndFeel(&botanical);
  faceplate=ImageCache::getFromMemory(BinaryData::faceplate_jpg,BinaryData::faceplate_jpgSize);
@@ -119,13 +127,24 @@ void SteamSynthEditor::resized(){
 void SteamSynthEditor::drawMovingParts(Graphics&g){
  const float peak=(lastL+lastR)*.5f;
  const bool tapeSync=synth.state.getRawParameterValue("sync")->load(std::memory_order_relaxed)>.5f;
- // Lamp in the original plate remains alive; an unlit sync LED is deliberately dark.
- if(tapeSync){g.setColour(amber.withAlpha(.2f+.1f*peak));g.fillEllipse(810.f,644.f,23.f,23.f);}
+ // Lamp and illuminated controls are animated independently of the stationary artwork.
+ if(tapeSync){g.setColour(amber.withAlpha(.32f+.18f*peak));g.fillEllipse(810.f,644.f,23.f,23.f);}
  else{g.setColour(ink.withAlpha(.88f));g.fillEllipse(817.f,651.f,10.f,10.f);}
- // Subtle living light, never an arbitrary cartoon rendering over the engraving.
+ // A breathing glass-lamp glow and lit active left-hand selector.
  const float breathe=.5f+.5f*std::sin(motionPhase*.31f);
  ColourGradient warm(amber.withAlpha(.18f+.14f*peak+.03f*breathe),85,120,amber.withAlpha(0.f),142,165,true);
  g.setGradientFill(warm);g.fillEllipse(27.f,48.f,122.f,196.f);
+ g.setColour(amber.withAlpha(.15f+.15f*breathe));g.fillRoundedRectangle(36.f,tab==1?337.f:tab==2?411.f:tab==3?484.f:263.f,135.f,50.f,11.f);
+ // Echo subdivision readout: the numeric value is printed on the plate, not the knob.
+ if(auto* time=synth.state.getRawParameterValue("time")){
+  const float v=juce::jlimit(0.f,1.f,time->load(std::memory_order_relaxed));
+  const juce::String labels[]={"1/32","1/16T","1/16","1/8T","1/8","1/4T","1/4","1/2","1/1"};
+  const int idx=juce::jlimit(0,8,juce::roundToInt(v*8.f));
+  const juce::String value=tapeSync?labels[idx]:juce::String(juce::roundToInt(45.f+2650.f*v*v))+" ms";
+  g.setColour(Colour::fromRGB(74,48,26).withAlpha(.94f));
+  g.setFont(Font(FontOptions("Georgia",13.f,Font::bold)));
+  g.drawFittedText(value,{541,718,79,18},Justification::centred,1);
+ }
  // Genuine two-channel meter readings; separate moving needles track live stereo audio.
  for(int i=0;i<2;++i){
   const float value=jlimit(0.f,1.f,i?lastR:lastL);
