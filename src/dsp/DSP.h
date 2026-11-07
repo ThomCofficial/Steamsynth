@@ -166,7 +166,7 @@ private:
 class Echo {
 public:
  void prepare(double s){sr=std::clamp(s,8000.,384000.);len=size_t(sr*4.)+4;l.assign(len,0);r.assign(len,0);pos=0;filteredL=filteredR=0;phase=0;delayS=sr*.35;}
- void reset() noexcept {std::fill(l.begin(),l.end(),0);std::fill(r.begin(),r.end(),0);pos=0;filteredL=filteredR=0;}
+ void reset() noexcept {std::fill(l.begin(),l.end(),0.0f);std::fill(r.begin(),r.end(),0.0f);pos=0;filteredL=filteredR=0;}
  void process(float &left,float &right,float time,float feedback,float wet,float tone,bool sync,double bpm) noexcept {
   wet=clip01(wet);feedback=clip01(feedback);tone=clip01(tone);
   if(wet<.0001f&&feedback<.0001f)return;
