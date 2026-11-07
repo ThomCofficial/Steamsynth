@@ -1,0 +1,13 @@
+cmake_minimum_required(VERSION 3.22)
+project(SteamSynth VERSION 0.1.0 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+include(CTest)
+add_library(steamsynth_dsp INTERFACE)
+target_include_directories(steamsynth_dsp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+if(BUILD_TESTING)
+  add_executable(steamsynth_dsp_tests tests/dsp_tests.cpp)
+  target_link_libraries(steamsynth_dsp_tests PRIVATE steamsynth_dsp)
+  add_test(NAME OrganicDSPStress COMMAND steamsynth_dsp_tests)
+endif()
+# Plugin wrapper / GUI will be added after the DSP is validated.
