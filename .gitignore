@@ -1,0 +1,7 @@
+build/
+build-*/
+*.wav
+*.vst3/
+*.exe
+*.dll
+.DS_Store
