@@ -73,7 +73,14 @@ void BotanicalLookAndFeel::drawButtonBackground(Graphics&g,Button& b,const Colou
  const Rectangle<float> r=b.getLocalBounds().toFloat();
  if(id.startsWith("tab_")){
   const int n=id=="tab_synth"?0:id=="tab_fx"?1:id=="tab_motion"?2:3;
-  paintSprite(g,(b.getToggleState()||hover)?tabLit[unsigned(n)]:tabNormal[unsigned(n)],r);
+  paintSprite(g,tabNormal[unsigned(n)],r);
+  // The amber hardware is independent; individual tabs fade between actual
+  // unlit/illuminated photographs instead of overlaying a second GUI.
+  {
+   Graphics::ScopedSaveState litLayer(g);
+   g.setOpacity(std::clamp(tabLights[unsigned(n)]+(hover?.15f:0.f),0.f,1.f));
+   paintSprite(g,tabLit[unsigned(n)],r);
+  }
   if(down){g.setColour(Colour::fromRGB(93,44,15).withAlpha(.16f));g.fillRoundedRectangle(r.reduced(7.f),12.f);}
   return;
  }
@@ -84,13 +91,16 @@ void BotanicalLookAndFeel::drawButtonBackground(Graphics&g,Button& b,const Colou
   return;
  }
  if(id=="pollinate_main"){
-  const float pulse=.5f+.5f*std::sin(pollinationPhase);
-  g.setColour(amber.withAlpha(.07f+.15f*pulse));g.fillEllipse(r.expanded(2.f));
-  // Complete carved flower knob. Never superimpose a second translucent ring.
-  Graphics::ScopedSaveState guard(g);
-  g.addTransform(AffineTransform::rotation(.045f*std::sin(pollinationPhase),r.getCentreX(),r.getCentreY()));
-  paintSprite(g,flower,r);
-  if(hover){g.setColour(amber.withAlpha(.16f));g.drawEllipse(r.reduced(3.f),1.5f);}
+  // Original golden brass medallion with actual cut-out transparency.
+  // Never dim it with the translucent old faceplate asset.
+  paintSprite(g,flower,down?r.translated(0.f,1.5f):r);
+  const float glow=std::clamp(pollinationPhase,0.f,1.f);
+  if(glow>.001f||hover){
+   g.setColour(amber.withAlpha(.55f*glow+(hover?.10f:0.f)));
+   g.drawEllipse(r.reduced(2.f),2.2f);
+   g.setColour(Colour::fromRGB(255,221,139).withAlpha(.21f*glow));
+   g.fillEllipse(r.reduced(14.f));
+  }
   return;
  }
  if(id=="undo"){
@@ -212,8 +222,9 @@ void SteamSynthEditor::addKnob(const char* id){
 }
 void SteamSynthEditor::setTab(int which){
  tab=juce::jlimit(0,3,which);
+ botanical.setActiveTab(tab);
  for(auto id:{"motionRate","motionDepth","motionAmount","tone","drift","reverbDamp","spore","resonance","width"})knobs.at(id)->setVisible(false);
- const char* const pages[3][3]={{"motionRate","motionDepth","motionAmount"},{"tone","drift","reverbDamp"},{"spore","resonance","width"}};
+ const char* const pages[3][3]={{"motionRate","motionDepth","motionAmount"},{"tone","width","reverbDamp"},{"spore","resonance","drift"}};
  const int page=tab==1?1:tab==3?2:0;
  for(const auto id:pages[page])knobs.at(id)->setVisible(true);
  synthTab.setToggleState(tab==0,dontSendNotification);
@@ -228,8 +239,9 @@ void SteamSynthEditor::timerCallback(){
  meterR=smooth(meterR,juce::jlimit(0.f,1.f,synth.meterR.load(std::memory_order_relaxed)));
  const float rate=synth.state.getRawParameterValue("motionRate")->load(std::memory_order_relaxed);
  motionPhase+=.03f+.12f*rate;
- pollinationPhase*=.91f;
+ pollinationPhase*=.87f;
  botanical.setPollinationPhase(pollinationPhase);
+ botanical.animateTabLights();
  pollinateButton.repaint();
  piano.repaint();
  if(lastEditFrames>0)--lastEditFrames;
@@ -268,23 +280,41 @@ void SteamSynthEditor::drawAnimatedHardware(Graphics&g){
   g.setColour(Colour::fromRGB(170,94,43));g.fillEllipse(pivotX-2.5f,692.5f,5.f,5.f);
  };
  needle(1343.f,meterL,-.08f);needle(1410.f,meterR,.08f);
- // Motion oscilloscope: live animated waveform driven by rate, depth and amount.
+ // Real hand-engraved oscilloscope inside the botanical bay.
+ // Its trace changes with the selected page: motion, tape/widening or growth.
  const float depth=synth.state.getRawParameterValue("motionDepth")->load(std::memory_order_relaxed);
  const float amount=synth.state.getRawParameterValue("motionAmount")->load(std::memory_order_relaxed);
+ const float width=synth.state.getRawParameterValue("width")->load(std::memory_order_relaxed);
+ const float mut=synth.state.getRawParameterValue("mutate")->load(std::memory_order_relaxed);
  {
-  Graphics::ScopedSaveState guard(g);g.reduceClipRegion({1348,778,86,20});
+  const Rectangle<float> scope(1341.f,774.f,99.f,30.f);
+  g.setColour(Colour::fromRGB(65,38,20));g.fillRoundedRectangle(scope.expanded(3.f),6.f);
+  g.setColour(Colour::fromRGB(164,103,39));g.drawRoundedRectangle(scope.expanded(3.f),6.f,2.f);
+  g.setColour(Colour::fromRGB(27,40,31));g.fillRoundedRectangle(scope,4.f);
+  Graphics::ScopedSaveState guard(g);g.reduceClipRegion(scope.toNearestInt().reduced(3));
   Path trace;
-  for(int i=0;i<=90;++i){
-   const float x=1349.f+float(i)*.94f;
-   const float y=789.f-(2.f+6.f*depth)*std::sin(i*.17f+motionPhase)*(0.45f+.55f*amount);
-   if(i==0)trace.startNewSubPath(x,y);else trace.lineTo(x,y);
+  for(int q=0;q<=92;++q){
+   const float x=1344.f+q*1.0f;
+   const float t=q*.16f+motionPhase;
+   const float oscillation=tab==1?
+     std::sin(t*.7f)*std::cos(t*.22f+.7f*width):
+     tab==3?std::sin(t*.47f)*std::sin(t*.15f+1.f+mut):
+     std::sin(t)*(.45f+.5f*std::sin(t*.26f));
+   const float y=789.f-(4.5f+8.f*depth)*(tab==1?(.4f+.6f*width):(.3f+.7f*amount))*oscillation;
+   if(q==0)trace.startNewSubPath(x,y);else trace.lineTo(x,y);
   }
-  g.setColour(amber.withAlpha(.20f));g.strokePath(trace,PathStrokeType(4.f));
-  g.setColour(Colour::fromRGB(251,213,102));g.strokePath(trace,PathStrokeType(1.35f));
+  g.setColour(amber.withAlpha(.26f));g.strokePath(trace,PathStrokeType(3.2f));
+  g.setColour(Colour::fromRGB(250,217,121));g.strokePath(trace,PathStrokeType(1.2f));
+ }
+ // Mutate's orange ring responds to its value, without spinning the scale.
+ {
+  const float light=.12f+.28f*mut*(.74f+.26f*breathe);
+  g.setColour(Colour::fromRGB(250,125,36).withAlpha(light));
+  g.drawEllipse(735.f,191.f,230.f,230.f,3.f);
  }
  // Engraved preset and polyphony windows are independent of the buttons.
- g.setColour(Colour::fromRGB(49,32,19));g.fillRoundedRectangle(597.f,137.f,396.f,30.f,2.f);
- italic(g,synth.presetName,{601.f,136.f,388.f,34.f},21.f);
+ // The antique preset display is already on the plate: no opaque rectangle.
+ italic(g,synth.presetName,{595.f,140.f,390.f,29.f},21.f);
  if(auto* p=synth.state.getRawParameterValue("poly")){
   g.setColour(Colour::fromRGB(52,38,22));g.fillRoundedRectangle(148.f,783.f,41.f,21.f,2.f);
   g.setColour(Colour::fromRGB(245,211,150));g.setFont(Font(FontOptions("Georgia",17.f,Font::plain)));
@@ -299,10 +329,10 @@ void SteamSynthEditor::drawAnimatedHardware(Graphics&g){
  g.setColour(Colour::fromRGB(77,49,25));g.setFont(Font(FontOptions("Georgia",13.f,Font::plain)));
  g.drawFittedText(label,{552,713,56,20},Justification::centred,1);
  // Page-dependent engravings, not a generic rectangular overlay over the artwork.
- const String heading=tab==1?"E F F E C T S":tab==3?"P O L L I N A T E":"M O T I O N";
+ const String heading=tab==1?"T A P E   &   S P A C E":tab==3?"P O L L I N A T E":"M O T I O N";
  g.setColour(Colour::fromRGB(70,47,28));g.setFont(Font(FontOptions("Georgia",19.f,Font::plain)));
  g.drawFittedText(heading,{1280,741,259,26},Justification::centred,1);
- const String labels[3][3]={{"RATE","DEPTH","AMOUNT"},{"TONE","DRIFT","DAMP"},{"SPORE","ROOT","WIDTH"}};
+ const String labels[3][3]={{"RATE","DEPTH","AMOUNT"},{"TONE","WIDTH","DAMP"},{"SPORE","ROOT","DRIFT"}};
  const int page=tab==1?1:tab==3?2:0;
  g.setFont(Font(FontOptions("Georgia",13.f,Font::plain)));
  for(int i=0;i<3;++i)g.drawFittedText(labels[page][i],{1272+i*85,861,72,20},Justification::centred,1);
