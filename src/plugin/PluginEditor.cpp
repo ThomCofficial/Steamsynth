@@ -215,7 +215,7 @@ void SteamSynthEditor::addKnob(const char* id){
   slider->setTooltip(param->getName(100));
  }
  slider->onDragStart=[this,id]{lastEdited=id;lastEditFrames=45;};
- slider->onValueChange=[this,id]{lastEdited=id;lastEditFrames=45;};
+ // Host preset recall changes the dial silently; only intentional dragging opens the engraved value readout.
  addAndMakeVisible(*slider);
  attachments.push_back(std::make_unique<AudioProcessorValueTreeState::SliderAttachment>(synth.state,id,*slider));
  knobs.emplace(id,std::move(slider));
