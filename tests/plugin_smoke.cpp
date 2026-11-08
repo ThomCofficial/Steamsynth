@@ -30,6 +30,9 @@ int main(){
  processor.setCurrentProgram(3);
  auto editor=std::unique_ptr<juce::AudioProcessorEditor>(processor.createEditor());
  if(!editor||editor->getWidth()!=1600||editor->getHeight()!=900)return 4;
+ // A host makes its editor visible. Match that lifecycle before taking snapshots:
+ // a newly constructed JUCE AudioProcessorEditor starts out hidden.
+ editor->setVisible(true);
  // Paint the ACTUAL complete editor (children included) to a diagnostic PNG.
  juce::Image image(juce::Image::ARGB,1600,900,true);
  juce::Graphics graphics(image);
@@ -116,9 +119,23 @@ int main(){
    saveDiagnostic(high,"SteamSynth-UI-knob-high.png");
    saveDiagnostic(directLow,"SteamSynth-UI-direct-low.png");
    saveDiagnostic(directHigh,"SteamSynth-UI-direct-high.png");
+   juce::Image sliderLow(juce::Image::ARGB,184,184,true),sliderHigh(juce::Image::ARGB,184,184,true);
+   slider->setValue(parameter->convertFrom0to1(.13f),juce::sendNotificationSync);
+   {juce::Graphics g(sliderLow);slider->paintEntireComponent(g,true);}
+   slider->setValue(parameter->convertFrom0to1(.87f),juce::sendNotificationSync);
+   {juce::Graphics g(sliderHigh);slider->paintEntireComponent(g,true);}
+   int own=0;
+   for(int y=0;y<184;y+=3)for(int x=0;x<184;x+=3){
+    const auto a=sliderLow.getPixelAt(x,y),b=sliderHigh.getPixelAt(x,y);
+    if(std::abs(int(a.getRed())-int(b.getRed()))+
+       std::abs(int(a.getGreen())-int(b.getGreen()))+
+       std::abs(int(a.getBlue())-int(b.getBlue()))>35)++own;
+   }
+   saveDiagnostic(sliderLow,"SteamSynth-UI-slider-low.png");
+   saveDiagnostic(sliderHigh,"SteamSynth-UI-slider-high.png");
    std::cerr<<"FAIL: knob not visually responding: "<<c.id
     <<" pixels="<<changed<<" entire="<<entire<<" direct="<<direct
-    <<" opaque="<<opaque<<" low="<<lowValue<<" high="<<highValue
+    <<" opaque="<<opaque<<" sliderOwn="<<own<<" sliderLayout="<<slider->getLookAndFeel().getSliderLayout(*slider).sliderBounds.toString()<<" editorVisible="<<editor->isVisible()<<" low="<<lowValue<<" high="<<highValue
     <<" bounds="<<slider->getBounds().toString()
     <<" visible="<<slider->isVisible()
     <<" showing="<<slider->isShowing()
