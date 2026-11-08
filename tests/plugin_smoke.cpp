@@ -88,8 +88,44 @@ int main(){
       std::abs(int(a.getGreen())-int(b.getGreen()))+
       std::abs(int(a.getBlue())-int(b.getBlue()))>35)++changed;
   }
-  if(changed<20){std::cerr<<"FAIL: knob not visually responding: "<<c.id
-   <<" pixels="<<changed<<" low="<<lowValue<<" high="<<highValue<<"\n";return 8;}
+  if(changed<20){
+   int entire=0;
+   for(int y=0;y<900;y+=8)for(int x=0;x<1600;x+=8){
+    const auto a=low.getPixelAt(x,y),b=high.getPixelAt(x,y);
+    if(std::abs(int(a.getRed())-int(b.getRed()))+
+       std::abs(int(a.getGreen())-int(b.getGreen()))+
+       std::abs(int(a.getBlue())-int(b.getBlue()))>35)++entire;
+   }
+   juce::Image directLow(juce::Image::ARGB,184,184,true),directHigh(juce::Image::ARGB,184,184,true);
+   {juce::Graphics g(directLow);slider->getLookAndFeel().drawRotarySlider(g,0,0,184,184,.13f,-2.34f,2.34f,*slider);}
+   {juce::Graphics g(directHigh);slider->getLookAndFeel().drawRotarySlider(g,0,0,184,184,.87f,-2.34f,2.34f,*slider);}
+   int direct=0,opaque=0;
+   for(int y=0;y<184;y+=3)for(int x=0;x<184;x+=3){
+    const auto a=directLow.getPixelAt(x,y),b=directHigh.getPixelAt(x,y);
+    if(a.getAlpha()>0)++opaque;
+    if(std::abs(int(a.getRed())-int(b.getRed()))+
+       std::abs(int(a.getGreen())-int(b.getGreen()))+
+       std::abs(int(a.getBlue())-int(b.getBlue()))>35)++direct;
+   }
+   auto saveDiagnostic=[](const juce::Image& im,const juce::String& name){
+    auto file=juce::File::getCurrentWorkingDirectory().getChildFile(name);
+    auto stream=file.createOutputStream();
+    if(stream){juce::PNGImageFormat().writeImageToStream(im,*stream);stream->flush();}
+   };
+   saveDiagnostic(low,"SteamSynth-UI-knob-low.png");
+   saveDiagnostic(high,"SteamSynth-UI-knob-high.png");
+   saveDiagnostic(directLow,"SteamSynth-UI-direct-low.png");
+   saveDiagnostic(directHigh,"SteamSynth-UI-direct-high.png");
+   std::cerr<<"FAIL: knob not visually responding: "<<c.id
+    <<" pixels="<<changed<<" entire="<<entire<<" direct="<<direct
+    <<" opaque="<<opaque<<" low="<<lowValue<<" high="<<highValue
+    <<" bounds="<<slider->getBounds().toString()
+    <<" visible="<<slider->isVisible()
+    <<" showing="<<slider->isShowing()
+    <<" sameLAF="<<(&slider->getLookAndFeel()==&editor->getLookAndFeel())
+    <<" children="<<editor->getNumChildComponents()<<"\n";
+   return 8;
+  }
   // The scale printed ABOVE the knob must not rotate or move.
   if(c.y==306&&low.getPixelAt(c.x,200)!=high.getPixelAt(c.x,200))return 9;
  }
