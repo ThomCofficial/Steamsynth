@@ -88,9 +88,9 @@ public:
   currentFreq+=slew*(wantedFreq-currentFreq);
   const float step=std::clamp(currentFreq/float(sr),.000005f,.45f);
   phase+=step;if(phase>=1.f)phase-=1.f;
-  const float ratio2=1.005f+mutation*(1.55f+dna*.7f)+growth*m.grow*.12f;
-  const float ratio3=.498f+mutation*.18f;
-  const float ratio4=2.01f+mutation*(2.6f+dna);
+  const float ratio2=2.0f+mutation*(.008f+dna*.013f)+growth*m.grow*.003f; // Harmonic FM carrier: lock the note center.
+  const float ratio3=.5f; // Always a true octave below: no misleading wandering pitch.
+  const float ratio4=3.f+mutation*(.01f+dna*.04f);
   phase2+=std::min(.49f,step*ratio2);if(phase2>=1.f)phase2-=1.f;
   phase3+=std::min(.49f,step*ratio3);if(phase3>=1.f)phase3-=1.f;
   phase4+=std::min(.49f,step*ratio4);if(phase4>=1.f)phase4-=1.f;
@@ -98,7 +98,7 @@ public:
   const float sub=std::sin(2.f*pi*phase3);
   const float mod=std::sin(2.f*pi*phase2);
   const float highNoteSafety=clip01((.34f-step)/.30f);
-  const float index=(.05f+mutation*2.7f+growth*m.grow*1.8f+movement*.45f)*highNoteSafety;
+  const float index=(.04f+mutation*1.65f+growth*m.grow*.85f+movement*.22f)*highNoteSafety;
   const float fm=std::sin(2.f*pi*phase+index*mod);
   const float saw=2.f*phase-1.f-polyBlep(phase,step);
   const float width=std::clamp(.48f+mutation*.21f+movement*.08f,.16f,.84f);
@@ -109,12 +109,12 @@ public:
   noiseLP+=dustCoeff*(white-noiseLP);
   const float pluck=1.f/(1.f+age*(3.f+13.f*(1.f-m.grow)));
   float modal=0.f,formant=0.f;
-  constexpr float partials[6]={1.13f,1.98f,2.72f,3.89f,5.44f,7.17f};
+  constexpr float partials[6]={1.f,2.f,3.f,4.f,5.f,7.f};
   const float excitation=(.42f*saw+.25f*fm+.16f*pulse+noiseLP*(.08f+.3f*mutation))*(.35f+.65f*pluck);
   for(int i=0;i<6;++i){
    auto &p=poles[unsigned(i)];
    if((tickCounter&31)==0||p.cr==0.f){
-    const float stretch=1.f+mutation*(.06f+.12f*float(i))*std::sin(float(i)*1.77f+dna*3.f+age*(.19f+movement*.1f));
+    const float stretch=1.f+mutation*(.003f+.009f*float(i))*std::sin(float(i)*1.77f+dna*3.f+age*(.19f+movement*.1f));
     const float f=std::min(float(sr)*.42f,currentFreq*partials[i]*stretch);
     const float decay=.028f+(.1f+1.7f*m.resonance+growth*m.grow*.8f)/(1.f+float(i)*.48f);
     const float radius=std::exp(-1.f/(float(sr)*decay));
@@ -134,7 +134,7 @@ public:
   const int i=std::min(3,int(seedPos));
   float mix=seedPos-float(i);mix=mix*mix*(3.f-2.f*mix);
   const float organic=lerp(families[i],families[i+1],mix);
-  const float signal=organic*(.83f+.17f*growth)+modal*(.06f+.23f*mutation);
+  const float signal=organic*(.62f+.14f*growth)+(.24f+.08f*mutation)*sine+.09f*sub+modal*(.05f+.11f*mutation);
   float out=fastSat(signal*1.5f)*1.32f*env*velocity*(.8f+.2f*expr);
   if(std::abs(stealTail)>.00001f){out+=stealTail;stealTail*=std::exp(-1.f/(float(sr)*.002f));}
   lastOut=out;
@@ -169,6 +169,35 @@ public:
  int activeCount() const noexcept {int n=0;for(auto &v:voices)if(v.active())++n;return n;}
 private:
  std::array<Voice,16> voices{};uint64_t last=0;float bendValue=0,expr=1;
+};
+// Two short, fully deterministic decorrelation lines. The side signal is
+// complementary: summing the two channels reconstructs the original mono
+// center, while the stereo field opens naturally even without reverb/delay.
+class StereoSpread {
+public:
+ void prepare(double sampleRate) {
+  const double sr=std::clamp(sampleRate,8000.,384000.);
+  leftDelay=std::clamp(int(sr*.0083),16,4000);
+  rightDelay=std::clamp(int(sr*.0147),24,6400);
+  bufferL.assign(size_t(leftDelay+1),0.f);
+  bufferR.assign(size_t(rightDelay+1),0.f);
+  reset();
+ }
+ void reset() noexcept {std::fill(bufferL.begin(),bufferL.end(),0.f);std::fill(bufferR.begin(),bufferR.end(),0.f);indexL=indexR=0;}
+ void process(float& l,float& r,float width) noexcept {
+  if(bufferL.empty()||bufferR.empty())return;
+  const float mid=(safe(l)+safe(r))*.5f;
+  const float oldL=bufferL[indexL],oldR=bufferR[indexR];
+  bufferL[indexL]=mid;bufferR[indexR]=mid;
+  if(++indexL==bufferL.size())indexL=0;
+  if(++indexR==bufferR.size())indexR=0;
+  const float side=(oldL-oldR)*(.22f*clip01(width));
+  l=safe(mid+side);r=safe(mid-side);
+ }
+private:
+ std::vector<float>bufferL,bufferR;
+ size_t indexL=0,indexR=0;
+ int leftDelay=400,rightDelay=705;
 };
 class Cassette {
 public:
@@ -214,7 +243,7 @@ class Echo {
 public:
  void prepare(double s){sr=std::clamp(s,8000.,384000.);len=size_t(sr*4.)+4;l.assign(len,0);r.assign(len,0);pos=0;filteredL=filteredR=0;phase=0;delayS=sr*.35;}
  void reset() noexcept {std::fill(l.begin(),l.end(),0.0f);std::fill(r.begin(),r.end(),0.0f);pos=0;filteredL=filteredR=0;}
- void process(float &left,float &right,float time,float feedback,float wet,float tone,bool sync,double bpm) noexcept {
+ void process(float &left,float &right,float time,float feedback,float wet,float tone,bool sync,double bpm,float width=.7f) noexcept {
   wet=clip01(wet);feedback=clip01(feedback);tone=clip01(tone);
   if(wet<.0001f&&feedback<.0001f)return;
   const double beats=std::clamp(std::isfinite(bpm)?bpm:120.,25.,300.);
@@ -229,7 +258,9 @@ public:
   filteredL+=coeff*(dl-filteredL);filteredR+=coeff*(dr-filteredR);
   const float fb=std::min(.88f,feedback*.88f);
   l[pos]=fastSat(safe(left)*.8f+filteredR*fb)*1.35f;
-  r[pos]=fastSat(safe(right)*.8f+filteredL*fb)*1.35f;
+  // A single dry voice now excites one side more than the other; the next
+  // feedback pass crosses to the opposite channel, making genuine ping-pong.
+  r[pos]=fastSat(safe(right)*(.8f-.54f*clip01(width))+filteredL*fb)*1.35f;
   pos=(pos+1)%len;
   left=safe(left*(1.f-wet)+dl*wet*.85f);right=safe(right*(1.f-wet)+dr*wet*.85f);
  }
@@ -271,8 +302,8 @@ private:
 };
 class Instrument {
 public:
- void prepare(double rate){sr=std::clamp(rate,8000.,384000.);voices.prepare(sr);cassette.prepare(sr);echo.prepare(sr);bloom.prepare(sr);reset();}
- void reset() noexcept {voices.allOff();cassette.reset();echo.reset();bloom.reset();peakL=peakR=0;}
+ void prepare(double rate){sr=std::clamp(rate,8000.,384000.);voices.prepare(sr);stereo.prepare(sr);cassette.prepare(sr);echo.prepare(sr);bloom.prepare(sr);reset();}
+ void reset() noexcept {voices.allOff();stereo.reset();cassette.reset();echo.reset();bloom.reset();peakL=peakR=0;}
  void noteOn(int n,float vel) noexcept {voices.noteOn(std::clamp(n,0,127),vel,macro.poly);}
  void noteOff(int n) noexcept {voices.noteOff(std::clamp(n,0,127));}
  void allOff() noexcept {voices.allOff();}
@@ -292,8 +323,9 @@ public:
   cassette.setDirt(macro.dirt);
   float x=voices.process(macro);
   l=safe(l+x);r=safe(r+x);
+  stereo.process(l,r,macro.stereo);
   cassette.process(l,r,macro.dirt,macro.drift);
-  echo.process(l,r,macro.tapeTime,macro.tapeFeedback,macro.tapeMix,macro.tapeTone,macro.sync,bpm);
+  echo.process(l,r,macro.tapeTime,macro.tapeFeedback,macro.tapeMix,macro.tapeTone,macro.sync,bpm,macro.stereo);
   bloom.process(l,r,macro.bloom,macro.reverbDamp,macro.stereo);
   float gain=.25f+macro.master*1.2f;
   l=std::clamp(safe(l*gain),-1.f,1.f);r=std::clamp(safe(r*gain),-1.f,1.f);
@@ -302,6 +334,6 @@ public:
  float meterL() const noexcept{return peakL;}float meterR() const noexcept{return peakR;}
  int voicesActive() const noexcept {return voices.activeCount();}
 private:
- double sr=48000;Voices voices;Cassette cassette;Echo echo;Bloom bloom;Macro macro,target;float peakL=0,peakR=0;
+ double sr=48000;Voices voices;StereoSpread stereo;Cassette cassette;Echo echo;Bloom bloom;Macro macro,target;float peakL=0,peakR=0;
 };
 }
