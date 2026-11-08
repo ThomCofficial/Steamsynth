@@ -40,13 +40,9 @@ int main(){
  auto stream=file.createOutputStream();
  if(!stream||!juce::PNGImageFormat().writeImageToStream(image,*stream))return 6;
  stream->flush();
- // Parameter-to-slider attachments may deliver updates asynchronously on JUCE's
- // message thread. Flush them before capturing either frame to avoid a false
- // pixel-diff failure caused by two identical slider positions.
- const auto flushUI=[] {
-  if(auto* mm=juce::MessageManager::getInstanceWithoutCreating())
-   mm->runDispatchLoopUntil(70);
- };
+ // Drive the actual visible sliders, just as a mouse gesture would.
+ // This tests both rendering and the SliderAttachment -> parameter connection
+ // without relying on an event loop that JUCE disables in plugin builds.
  const auto findSlider=[&](const char* name)->juce::Slider* {
   for(int i=0;i<editor->getNumChildComponents();++i){
    auto* child=editor->getChildComponent(i);
@@ -65,14 +61,18 @@ int main(){
   auto* parameter=processor.state.getParameter(c.id);
   auto* slider=findSlider(c.id);
   if(!parameter||!slider){std::cerr<<"FAIL: knob missing: "<<c.id<<"\n";return 7;}
-  parameter->setValueNotifyingHost(.13f);
-  flushUI();
+  slider->setValue(parameter->convertFrom0to1(.13f),juce::sendNotificationSync);
   const double lowValue=slider->getValue();
+  const float lowParam=parameter->getValue();
   juce::Image low(juce::Image::ARGB,1600,900,true);
   juce::Graphics lowGraphics(low);editor->paintEntireComponent(lowGraphics,true);
-  parameter->setValueNotifyingHost(.87f);
-  flushUI();
+  slider->setValue(parameter->convertFrom0to1(.87f),juce::sendNotificationSync);
   const double highValue=slider->getValue();
+  const float highParam=parameter->getValue();
+  if(std::abs(lowParam-.13f)>.02f||std::abs(highParam-.87f)>.02f){
+   std::cerr<<"FAIL: slider gesture not reaching DSP parameter: "<<c.id
+            <<" low="<<lowParam<<" high="<<highParam<<"\n";return 8;
+  }
   if(std::abs(highValue-lowValue)<.5){
    std::cerr<<"FAIL: parameter-to-slider attachment not updating: "<<c.id
             <<" low="<<lowValue<<" high="<<highValue<<"\n";
