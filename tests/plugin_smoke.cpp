@@ -35,8 +35,9 @@ int main(){
  editor->setVisible(true);
  // Paint the ACTUAL complete editor (children included) to a diagnostic PNG.
  juce::Image image(juce::Image::ARGB,1600,900,true);
- juce::Graphics graphics(image);
- editor->paintEntireComponent(graphics,true);
+ // JUCE 8's Windows Direct2D image renderer defers its writes until Graphics
+ // destruction. Never sample/save an Image while a Graphics targeting it lives.
+ {juce::Graphics graphics(image);editor->paintEntireComponent(graphics,true);}
  auto key=image.getPixelAt(600,830);
  if(key.getRed()>252&&key.getGreen()>252&&key.getBlue()>252)return 5;
  auto file=juce::File::getCurrentWorkingDirectory().getChildFile("SteamSynth-UI-smoke.png");
@@ -68,7 +69,7 @@ int main(){
   const double lowValue=slider->getValue();
   const float lowParam=parameter->getValue();
   juce::Image low(juce::Image::ARGB,1600,900,true);
-  juce::Graphics lowGraphics(low);editor->paintEntireComponent(lowGraphics,true);
+  {juce::Graphics lowGraphics(low);editor->paintEntireComponent(lowGraphics,true);}
   slider->setValue(parameter->convertFrom0to1(.87f),juce::sendNotificationSync);
   const double highValue=slider->getValue();
   const float highParam=parameter->getValue();
@@ -82,7 +83,7 @@ int main(){
    return 8;
   }
   juce::Image high(juce::Image::ARGB,1600,900,true);
-  juce::Graphics highGraphics(high);editor->paintEntireComponent(highGraphics,true);
+  {juce::Graphics highGraphics(high);editor->paintEntireComponent(highGraphics,true);}
   int changed=0;
   const int r=(c.x>300&&c.y==306)?70:23;
   for(int y=c.y-r;y<c.y+r;y+=4)for(int x=c.x-r;x<c.x+r;x+=4){
