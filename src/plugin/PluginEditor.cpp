@@ -242,6 +242,7 @@ void SteamSynthEditor::timerCallback(){
  pollinationPhase*=.87f;
  botanical.setPollinationPhase(pollinationPhase);
  botanical.animateTabLights();
+ synthTab.repaint();fxTab.repaint();motionTab.repaint();pollinateSide.repaint();
  pollinateButton.repaint();
  piano.repaint();
  if(lastEditFrames>0)--lastEditFrames;
