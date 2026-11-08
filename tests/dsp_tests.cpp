@@ -40,8 +40,36 @@ void testIntegration(){Instrument x;x.prepare(44100);Macro m;m.poly=16;m.tapeMix
  x.setMacro(m);float l=0,r=0;x.process(l,r,120);
  require(std::isfinite(l)&&std::isfinite(r)&&std::abs(l)<=1.f&&std::abs(r)<=1.f,"complete instrument bounded");}
  ++tests;}
+void testStereoAndPitch(){
+ StereoSpread spread;spread.prepare(48000);
+ double sideEnergy=0.,monoError=0.;
+ for(int n=0;n<9000;++n){
+  const float input=std::sin(2.f*pi*220.f*float(n)/48000.f);
+  float l=input,r=input;
+  spread.process(l,r,.95f);
+  sideEnergy+=double(l-r)*double(l-r);
+  monoError=std::max(monoError,std::abs((double(l)+double(r))*.5-double(input)));
+  require(std::isfinite(l)&&std::isfinite(r),"stereo decorator finite");
+ }
+ require(sideEnergy>5.0,"stereo sound must be observably wider than mono");
+ require(monoError<.00001,"stereo decorrelation must sum back to mono");
+ Voice v;v.prepare(48000);
+ Macro m;m.seed=.18f;m.grow=.82f;m.mutate=.88f;m.attack=0.f;
+ v.start(69,1.f,1);
+ double tunedSin=0.,tunedCos=0.,offSin=0.,offCos=0.;
+ for(int n=0;n<18000;++n){
+  const double sample=v.render(m);
+  if(n<5000)continue;
+  const double a=double(n)*2.0*double(pi)/48000.;
+  tunedSin+=sample*std::sin(440.*a);tunedCos+=sample*std::cos(440.*a);
+  offSin+=sample*std::sin(466.16*a);offCos+=sample*std::cos(466.16*a);
+ }
+ const double tuned=std::hypot(tunedSin,tunedCos),detuned=std::hypot(offSin,offCos);
+ require(tuned>detuned*1.7,"organic note must have a stable MIDI-tuned fundamental");
+ ++tests;
+}
 void testSanitize(){require(clip01(std::numeric_limits<float>::quiet_NaN())==0,"nonfinite parameter safe");
  require(std::isfinite(fastSat(std::numeric_limits<float>::infinity())),"nonfinite saturation safe");++tests;}
-int main(){auto begin=std::chrono::steady_clock::now();testSanitize();testVoice();testPoly();testCassette();testEcho();testBloom();testIntegration();
+int main(){auto begin=std::chrono::steady_clock::now();testSanitize();testVoice();testPoly();testCassette();testEcho();testBloom();testStereoAndPitch();testIntegration();
  auto d=std::chrono::duration<double>(std::chrono::steady_clock::now()-begin).count();
  std::cout<<"PASS: "<<tests<<" suites, voice/cassette/echo/reverb/automation and 44.1-192 kHz; "<<d<<" seconds\n";}
