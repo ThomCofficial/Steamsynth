@@ -29,12 +29,17 @@ jobs:
         run: cmake --build build-plugin --config Release --parallel 2
       - name: Test DSP
         run: ctest --test-dir build-plugin --build-config Release --output-on-failure
-      - name: Publish actual editor render for visual inspection
+      - name: Publish actual editor render and failure diagnostics for visual inspection
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: SteamSynth-UI-Smoke
-          path: build-plugin/SteamSynth-UI-smoke.png
-          if-no-files-found: error
+          path: |
+            build-plugin/SteamSynth-UI-smoke.png
+            build-plugin/SteamSynth-UI-knob-*.png
+            build-plugin/SteamSynth-UI-direct-*.png
+            build-plugin/SteamSynth-UI-slider-*.png
+          if-no-files-found: warn
       - name: Collect VST3
         shell: pwsh
         run: |
