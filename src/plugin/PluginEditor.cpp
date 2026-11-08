@@ -309,9 +309,13 @@ void SteamSynthEditor::drawAnimatedHardware(Graphics&g){
  }
  // Mutate's orange ring responds to its value, without spinning the scale.
  {
-  const float light=.12f+.28f*mut*(.74f+.26f*breathe);
-  g.setColour(Colour::fromRGB(250,125,36).withAlpha(light));
-  g.drawEllipse(735.f,191.f,230.f,230.f,3.f);
+  const float light=.09f+.30f*mut*(.74f+.26f*breathe);
+  Path ember;
+  ember.addCentredArc(850.f,306.f,109.f,109.f,0.f,-2.18f,-1.24f,true);
+  g.setColour(Colour::fromRGB(255,147,48).withAlpha(light*.35f));
+  g.strokePath(ember,PathStrokeType(6.f));
+  g.setColour(Colour::fromRGB(235,115,32).withAlpha(light));
+  g.strokePath(ember,PathStrokeType(1.6f));
  }
  // Engraved preset and polyphony windows are independent of the buttons.
  // The antique preset display is already on the plate: no opaque rectangle.
