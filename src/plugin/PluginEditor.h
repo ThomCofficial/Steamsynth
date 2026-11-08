@@ -14,6 +14,10 @@ public:
  void drawButtonText(juce::Graphics&,juce::TextButton&,bool,bool) override {}
  void drawToggleButton(juce::Graphics&,juce::ToggleButton&,bool,bool) override;
  void setPollinationPhase(float v) noexcept {pollinationPhase=v;}
+ void setActiveTab(int page) noexcept {activePage=juce::jlimit(0,3,page);}
+ void animateTabLights() noexcept {
+  for(int i=0;i<4;++i){const float wanted=i==activePage?1.f:0.f;tabLights[unsigned(i)]+=.23f*(wanted-tabLights[unsigned(i)]);}
+ }
  juce::Image whiteKey(bool down) const {return down?whiteDown:whiteUp;}
  juce::Image blackKey(bool down) const {return down?blackDown:blackUp;}
  juce::Image flame() const {return flameSprite;}
@@ -25,6 +29,8 @@ private:
  std::array<juce::Image,3> presetHardware;
  juce::Image flower,whiteUp,whiteDown,blackUp,blackDown,led,flameSprite,undoSprite;
  float pollinationPhase=0.f;
+ int activePage=0;
+ std::array<float,4> tabLights{{1.f,0.f,0.f,0.f}};
  static void paintSprite(juce::Graphics&,const juce::Image&,juce::Rectangle<float>);
 };
 
